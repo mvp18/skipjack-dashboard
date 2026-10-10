@@ -1,0 +1,2012 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skipjack GPU Usage</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink-2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --border: rgba(11,11,11,0.10); --track: #e8e7e1; --wash: rgba(11,11,11,0.04);
+  --tier-high: #2a78d6; --tier-mid: #eb6834; --tier-low: #1baf7a; --total: #52514e; --cap: #b3b1a8;
+  --s1: #2a78d6; --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --good-text: #006300; --crit-text: #b3261e; --chip: #efeee9;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --track: #2c2c2a; --wash: rgba(255,255,255,0.05);
+    --tier-high: #3987e5; --tier-mid: #d95926; --tier-low: #199e70; --total: #c3c2b7; --cap: #5d5c57;
+    --s1: #3987e5; --good-text: #0ca30c; --crit-text: #e66767; --chip: #262624;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #ffffff; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10); --track: #2c2c2a; --wash: rgba(255,255,255,0.05);
+  --tier-high: #3987e5; --tier-mid: #d95926; --tier-low: #199e70; --total: #c3c2b7; --cap: #5d5c57;
+  --s1: #3987e5; --good-text: #0ca30c; --crit-text: #e66767; --chip: #262624;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; padding: 20px 24px 8px; flex-wrap: wrap; }
+h1 { font-size: 20px; margin: 0; font-weight: 600; }
+h2 { font-size: 15px; margin: 0 0 4px; font-weight: 600; }
+h3 { font-size: 14px; margin: 16px 0 6px; font-weight: 600; }
+.sub { color: var(--ink-2); font-size: 13px; margin: 2px 0 0; }
+.muted { color: var(--muted); }
+nav { display: flex; gap: 4px; padding: 0 24px; border-bottom: 1px solid var(--grid); overflow-x: auto; }
+nav button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--ink-2); padding: 10px 12px; font: inherit; cursor: pointer; white-space: nowrap; }
+nav button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+nav button:hover { color: var(--ink); }
+main { padding: 16px 24px 48px; max-width: 1500px; }
+.filters { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 4px 0 16px; }
+.filters label { color: var(--ink-2); font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+input[type=search], select { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; }
+input[type=search] { width: 220px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button { font: inherit; border: 0; background: var(--surface); color: var(--ink-2); padding: 5px 10px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--wash); color: var(--ink); font-weight: 600; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.card .sub { margin-bottom: 12px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 16px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.tile .label { color: var(--ink-2); font-size: 13px; }
+.tile .value { font-size: 26px; font-weight: 600; margin-top: 2px; }
+.tile .note { color: var(--muted); font-size: 12px; }
+.tile.hero .value { font-size: 48px; line-height: 1.1; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin: 4px 0 10px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.key { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+.lkey { width: 14px; height: 2px; display: inline-block; border-radius: 1px; }
+.hatch { background: repeating-linear-gradient(135deg, var(--axis) 0 2px, transparent 2px 5px); }
+.brow { display: grid; grid-template-columns: 170px 1fr 190px; gap: 10px; align-items: center; padding: 5px 0; }
+.brow .name { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.brow.wide { grid-template-columns: 250px 1fr 150px; }
+.brow .name small { display: block; color: var(--muted); font-size: 11px; }
+.brow .val { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar { display: flex; gap: 2px; height: 14px; }
+.bar > div { height: 100%; min-width: 0; }
+.bar > div:last-child { border-radius: 0 4px 4px 0; }
+.bar > div:hover { filter: brightness(1.12); }
+.chip { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--chip); color: var(--ink-2); margin-left: 6px; vertical-align: 1px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 6px 8px; text-align: left; border-bottom: 1px solid var(--grid); vertical-align: middle; white-space: nowrap; }
+td.wrap { white-space: normal; min-width: 150px; max-width: 260px; }
+figure.inline { margin: 0; }
+th { color: var(--ink-2); font-weight: 600; font-size: 12px; white-space: nowrap; position: sticky; top: 0; background: var(--surface); }
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--ink); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--wash); }
+tr.detail td { background: var(--wash); }
+.tablewrap { overflow-x: auto; }
+.meter { display: inline-flex; align-items: center; gap: 8px; }
+.meter .track { width: 56px; height: 8px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.meter .fill { height: 100%; border-radius: 4px; }
+.mini { display: inline-flex; gap: 2px; height: 10px; width: 110px; vertical-align: middle; margin-right: 8px; }
+.mini > div { height: 100%; }
+.mini > div:last-child { border-radius: 0 3px 3px 0; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 9px; white-space: nowrap; }
+.badge.high { color: var(--crit-text); background: color-mix(in srgb, var(--critical) 14%, transparent); }
+.badge.medium { color: var(--ink); background: color-mix(in srgb, var(--warning) 28%, transparent); }
+.badge.info { color: var(--ink-2); background: var(--chip); }
+.finding { border-left: 3px solid var(--axis); }
+.finding.high { border-left-color: var(--critical); }
+.finding.medium { border-left-color: var(--warning); }
+.finding p { max-width: 900px; }
+code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--chip); padding: 1px 4px; border-radius: 4px; }
+details summary { cursor: pointer; color: var(--ink-2); font-size: 13px; margin-top: 8px; }
+dl.gloss dt { font-weight: 600; margin-top: 10px; }
+dl.gloss dd { margin: 2px 0 0; color: var(--ink-2); max-width: 900px; }
+#banner .stale { margin: 8px 24px 0; padding: 10px 14px; border-radius: 8px; border-left: 3px solid var(--warning);
+  background: color-mix(in srgb, var(--warning) 14%, transparent); font-size: 14px; }
+#tip { position: fixed; pointer-events: none; z-index: 10; background: var(--surface); color: var(--ink); border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12); border-radius: 8px; padding: 8px 10px; font-size: 12px; display: none; min-width: 140px; }
+#tip .t { color: var(--ink-2); margin-bottom: 4px; }
+#tip .r { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+#tip .r b { font-variant-numeric: tabular-nums; }
+.chart svg { display: block; width: 100%; }
+.chart text { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.loading { opacity: 0.6; transition: opacity .2s; }
+.warn { color: var(--crit-text); }
+.flag { font-size: 12px; color: var(--crit-text); }
+.explain { max-width: 950px; color: var(--ink-2); }
+.explain b { color: var(--ink); }
+.showmore { margin-top: 8px; font: inherit; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; color: var(--ink-2); cursor: pointer; }
+button.theme { font: inherit; background: var(--surface); border: 1px solid var(--border); color: var(--ink-2); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+
+.plan-in { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 16px; }
+.plan-in .grp { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.plan-in input[type=number] { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; width: 90px; }
+.mixrow { display: grid; grid-template-columns: 70px 1fr 60px 150px; gap: 10px; align-items: center; padding: 4px 0; font-size: 13px; }
+.mixrow input[type=range] { width: 100%; accent-color: var(--s1); }
+.need { position: relative; height: 14px; }
+.need .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 0 4px 4px 0; background: var(--s1); }
+.need .ref { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
+.big { font-size: 32px; font-weight: 600; line-height: 1.15; }
+.tile.wide { grid-column: span 2; }
+.card p, .card li, .card h2, .card h3, dl.gloss dd { overflow-wrap: anywhere; }
+.tile.wide .big { font-size: 28px; }
+.need .clip { position: absolute; right: -2px; top: -1px; font-size: 12px; line-height: 16px; color: var(--ink-2); }
+.callout { border-left: 3px solid var(--critical); padding: 4px 12px; margin: 8px 0; }
+.callout.ok { border-left-color: var(--s1); }
+ul.tight { margin: 6px 0; padding-left: 20px; } ul.tight li { margin: 4px 0; max-width: 950px; }
+body.present { font-size: 16px; }
+body.present header .sub, body.present .filters label { font-size: 15px; }
+body.present .tile .value { font-size: 34px; } body.present .big { font-size: 40px; }
+body.present table { font-size: 15px; }
+@media (max-width: 700px) {
+  header, nav, main { padding-left: 16px; padding-right: 16px; }
+  .brow { grid-template-columns: 110px 1fr 90px; }
+  .grid2 { grid-template-columns: 1fr; }
+  .brow.wide { grid-template-columns: 130px 1fr 80px; }
+  .mixrow { grid-template-columns: 50px 1fr 44px; } .mixrow .val { display: none; }
+  .tile.wide { grid-column: auto; }
+  .tile.hero .value { font-size: 40px; }
+  input[type=search] { width: 100%; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Skipjack GPU usage</h1>
+    <p class="sub" id="updated">Loading…</p>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    <button class="theme" id="refreshBtn" type="button">Refresh now</button>
+    <button class="theme" id="theme" type="button" title="Switch light / dark / system theme">Theme: system</button>
+  </div>
+</header>
+<div id="banner"></div>
+<nav id="tabs" role="tablist"></nav>
+<main id="main"></main>
+<div id="tip" role="tooltip"></div>
+
+<script>window.SKJ_PUBLIC = true;</script>
+<script>
+"use strict";
+// ---------------------------------------------------------------------------
+// tiny DOM helpers (all data goes in via textContent — names come from Slurm)
+// ---------------------------------------------------------------------------
+const $ = (s, r = document) => r.querySelector(s);
+function el(tag, attrs, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k === "class") e.className = v;
+    else if (k === "style") e.style.cssText = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v === true ? "" : v);
+  }
+  for (const k of kids.flat()) if (k != null && k !== false) e.append(k instanceof Node ? k : String(k));
+  return e;
+}
+const NS = "http://www.w3.org/2000/svg";
+function sv(tag, attrs, ...kids) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v);
+  for (const k of kids) if (k != null) e.append(k instanceof Node ? k : document.createTextNode(String(k)));
+  return e;
+}
+// `code` spans in finding text -> <code>, everything else as text
+function richText(s) {
+  const out = [];
+  String(s).split("`").forEach((part, i) => out.push(i % 2 ? el("code", {}, part) : part));
+  return out;
+}
+const n0 = v => v == null || isNaN(v) ? "–" : Math.round(v).toLocaleString();
+const n1 = v => v == null || isNaN(v) ? "–" : (Math.round(v * 10) / 10).toLocaleString();
+const pl = (v, w) => `${n0(v)} ${w}${Math.round(v) === 1 ? "" : "s"}`;
+const pct = (v, d = 1) => v == null || isNaN(v) ? "–" : v.toFixed(d) + "%";
+const TIERS = ["high", "mid", "low"];
+// GPU classes (by the cluster's own price per GPU) are named by the GPU types in them, most expensive first
+const TIER_TYPES = { high: ["B300", "B200", "H200", "H100"], mid: ["A100", "RTX PRO 6000"], low: ["L40S"] };
+function tierName(t) {
+  const live = ((S.now && S.now.types) || []).filter(x => x.tier === t && !x.mig).sort((a, b) => (b.price_hour || 0) - (a.price_hour || 0))
+    .map(x => String(x.label).replace(/ SXM$/, ""));
+  return (live.length ? live : TIER_TYPES[t] || [t]).join(" / ");
+}
+const tierVar = t => `var(--tier-${t})`;
+function bytes(n) {
+  if (n == null) return "–";
+  const u = ["B", "KB", "MB", "GB", "TB", "PB"]; let i = 0;
+  while (Math.abs(n) >= 1000 && i < u.length - 1) { n /= 1000; i++; }
+  return (n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)) + " " + u[i];
+}
+function ago(ts) {
+  const s = Math.round(Date.now() / 1000 - ts);
+  return s < 90 ? s + " s ago" : Math.round(s / 60) + " min ago";
+}
+function mixText(mix) {
+  return Object.entries(mix || {}).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+    .map(([g, v]) => `${g} ${n1(v)}`).join(" · ") || "–";
+}
+function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+
+// ---------------------------------------------------------------------------
+// tooltip
+// ---------------------------------------------------------------------------
+const tip = $("#tip");
+function showTip(ev, title, rows) {
+  tip.replaceChildren(el("div", { class: "t" }, title),
+    ...rows.map(([color, label, value]) => el("div", { class: "r" },
+      el("span", {}, color ? el("span", { class: "lkey", style: `background:${color};margin-right:6px` }) : null, label),
+      el("b", {}, value))));
+  tip.style.display = "block";
+  const r = tip.getBoundingClientRect();
+  let x = ev.clientX + 14, y = ev.clientY + 14;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}
+const hideTip = () => { tip.style.display = "none"; };
+
+// ---------------------------------------------------------------------------
+// chart pieces
+// ---------------------------------------------------------------------------
+// horizontal stacked bar made of divs; segs = [{v, color, label, hatch}]
+function hbar(segs, max, title) {
+  const bar = el("div", { class: "bar" });
+  for (const s of segs) {
+    if (!(s.v > 0)) continue;
+    const d = el("div", { class: s.hatch ? "hatch" : "", style: `flex:0 1 max(3px, calc(${100 * s.v / max}% - 2px));${s.hatch ? "" : "background:" + s.color}`, tabindex: "0" });
+    const rows = segs.filter(x => x.v > 0).map(x => [x.hatch ? "var(--axis)" : x.color, x.label, n1(x.v)]);
+    d.addEventListener("pointermove", e => showTip(e, title, rows));
+    d.addEventListener("pointerleave", hideTip);
+    d.addEventListener("focus", e => { const r = d.getBoundingClientRect(); showTip({ clientX: r.right, clientY: r.top }, title, rows); });
+    d.addEventListener("blur", hideTip);
+    bar.append(d);
+  }
+  return bar;
+}
+function miniTiers(tiers, max) {
+  const m = el("span", { class: "mini" });
+  for (const t of TIERS) if (tiers[t] > 0) m.append(el("div", { style: `flex:0 0 max(2px, calc(${100 * tiers[t] / max}% - 2px));background:${tierVar(t)}` }));
+  return m;
+}
+function meter(p, label) {
+  if (p == null) return el("span", { class: "muted" }, label || "no limit");
+  const color = p >= 95 ? "var(--critical)" : p >= 80 ? "var(--warning)" : "var(--s1)";
+  const word = p >= 99.5 ? " full" : p >= 80 ? " near" : "";
+  return el("span", { class: "meter" },
+    el("span", { class: "track" }, el("span", { class: "fill", style: `display:block;width:${Math.min(p, 100)}%;background:${color}` })),
+    el("span", { class: p >= 95 ? "warn" : "", title: p >= 99.5 ? "main-account allowance used up" : p >= 80 ? "main account near its allowance" : "" }, (p >= 95 ? "▲ " : "") + pct(p, 0) + word));
+}
+function sparkline(vals, w = 96, h = 22) {
+  const s = sv("svg", { viewBox: `0 0 ${w} ${h}`, width: w, height: h, "aria-hidden": "true" });
+  if (!vals || !vals.length) return s;
+  const max = Math.max(1, ...vals);
+  const pts = vals.map((v, i) => [2 + i * (w - 6) / Math.max(1, vals.length - 1), h - 3 - (v / max) * (h - 6)]);
+  s.append(sv("polyline", { points: pts.map(p => p.join(",")).join(" "), fill: "none", stroke: "var(--muted)", "stroke-width": 1.5, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  const [lx, ly] = pts[pts.length - 1];
+  s.append(sv("circle", { cx: lx, cy: ly, r: 2.5, fill: "var(--s1)" }));
+  return s;
+}
+function axisNum(v) {
+  return v >= 1e6 ? (v / 1e6).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "M"
+    : v >= 1e4 ? (v / 1e3).toLocaleString(undefined, { maximumFractionDigits: 1 }) + "k" : n0(v);
+}
+function niceMax(v) {
+  if (v <= 0) return 10;
+  const p = Math.pow(10, Math.floor(Math.log10(v))), f = v / p;
+  return ([1, 1.2, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10].find(x => f <= x) || 10) * p;
+}
+// multi-line time series with crosshair tooltip. series: [{key,label,color,width}]
+function lineChart(box, data, series, hours) {
+  box.replaceChildren();
+  const W = Math.max(320, box.clientWidth || 700), H = 260, m = { l: 44, r: 12, t: 10, b: 26 };
+  const ts = data.ts || [];
+  if (!ts.length) { box.append(el("p", { class: "muted" }, "No history yet — it fills in every 5 minutes.")); return; }
+  const vals = series.map(s => data.series[s.key] || []);
+  const ymax = niceMax(Math.max(1, ...vals.flat().filter(v => v != null)));
+  m.l = Math.max(44, 14 + 7 * Math.max(...[0, 1, 2, 3, 4].map(k => axisNum(ymax * k / 4).length)));
+  const x = i => m.l + (W - m.l - m.r) * (ts[i] - ts[0]) / Math.max(1, ts[ts.length - 1] - ts[0]);
+  const y = v => m.t + (H - m.t - m.b) * (1 - v / ymax);
+  const svg = sv("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "GPUs in use over time" });
+  for (let k = 0; k <= 4; k++) {
+    const v = ymax * k / 4, yy = y(v);
+    svg.append(sv("line", { x1: m.l, x2: W - m.r, y1: yy, y2: yy, stroke: k ? "var(--grid)" : "var(--axis)", "stroke-width": 1 }));
+    svg.append(sv("text", { x: m.l - 6, y: yy + 4, "text-anchor": "end" }, axisNum(v)));
+  }
+  const span = ts[ts.length - 1] - ts[0], nt = Math.min(7, Math.floor((W - m.l) / 90));
+  for (let k = 0; k <= nt; k++) {
+    const t = ts[0] + span * k / nt, d = new Date(t * 1000);
+    const lab = hours <= 24 ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+      : d.toLocaleDateString([], { month: "short", day: "numeric" }) + (hours <= 72 ? " " + d.getHours() + "h" : "");
+    const xx = m.l + (W - m.l - m.r) * k / nt;
+    svg.append(sv("text", { x: xx, y: H - 8, "text-anchor": k === 0 ? "start" : k === nt ? "end" : "middle" }, lab));
+  }
+  series.forEach((s, si) => {
+    let d = "", pen = false;
+    vals[si].forEach((v, i) => { if (v == null) { pen = false; return; } d += (pen ? "L" : "M") + x(i).toFixed(1) + "," + y(v).toFixed(1); pen = true; });
+    svg.append(sv("path", { d, fill: "none", stroke: s.color, "stroke-width": s.width || 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  });
+  const cross = sv("line", { y1: m.t, y2: H - m.b, stroke: "var(--axis)", "stroke-width": 1, visibility: "hidden" });
+  const dots = series.map(s => sv("circle", { r: 4, fill: s.color, stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }));
+  svg.append(cross, ...dots);
+  const hit = sv("rect", { x: m.l, y: m.t, width: W - m.l - m.r, height: H - m.t - m.b, fill: "transparent", tabindex: 0 });
+  let cur = ts.length - 1;
+  function at(i, ev) {
+    cur = Math.max(0, Math.min(ts.length - 1, i));
+    cross.setAttribute("x1", x(cur)); cross.setAttribute("x2", x(cur)); cross.setAttribute("visibility", "visible");
+    series.forEach((s, si) => { const v = vals[si][cur]; dots[si].setAttribute("visibility", v == null ? "hidden" : "visible"); if (v != null) { dots[si].setAttribute("cx", x(cur)); dots[si].setAttribute("cy", y(v)); } });
+    const d = new Date(ts[cur] * 1000);
+    showTip(ev, d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+      series.map((s, si) => [s.color, s.label, n0(vals[si][cur])]));
+  }
+  const toIdx = px => { let best = 0, bd = 1e9; ts.forEach((_, i) => { const dd = Math.abs(x(i) - px); if (dd < bd) { bd = dd; best = i; } }); return best; };
+  hit.addEventListener("pointermove", ev => { const r = svg.getBoundingClientRect(); at(toIdx((ev.clientX - r.left) * W / r.width), ev); });
+  hit.addEventListener("pointerleave", () => { hideTip(); cross.setAttribute("visibility", "hidden"); dots.forEach(d => d.setAttribute("visibility", "hidden")); });
+  hit.addEventListener("keydown", ev => {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    ev.preventDefault(); const r = svg.getBoundingClientRect();
+    const i = cur + (ev.key === "ArrowLeft" ? -1 : 1);
+    at(i, { clientX: r.left + x(Math.max(0, Math.min(ts.length - 1, i))) * r.width / W, clientY: r.top + 20 });
+  });
+  hit.addEventListener("blur", hideTip);
+  svg.append(hit);
+  box.append(svg);
+}
+function legend(items) {
+  return el("div", { class: "legend" }, items.map(([color, label, kind]) =>
+    el("span", {}, el("span", { class: kind === "line" ? "lkey" : kind === "hatch" ? "key hatch" : "key", style: kind === "hatch" ? "" : `background:${color}` }), label)));
+}
+
+// sortable table. cols: [{key,label,num,render(row),sort(row)}]
+function sortTable(cols, rows, opts = {}) {
+  // sort order / "show all" survive the once-a-minute refresh (keyed by the column set)
+  const id = opts.id || cols.map(c => c.label).join("|");
+  S.ui.tables = S.ui.tables || {};
+  const st = S.ui.tables[id] || (S.ui.tables[id] = { key: opts.sortKey, desc: opts.desc !== false, limit: opts.limit || 1e9 });
+  const wrap = el("div", { class: "tablewrap" });
+  function draw() {
+    const key = st.key, desc = st.desc, limit = st.limit;
+    const c = cols.find(c => c.key === key);
+    const sv_ = c && c.sort ? c.sort : r => r[key];
+    const sorted = key != null ? rows.slice().sort((a, b) => {
+      const A = sv_(a), B = sv_(b);
+      if (A == null && B == null) return 0; if (A == null) return 1; if (B == null) return -1;
+      return (typeof A === "string" ? A.localeCompare(B) : A - B) * (desc ? -1 : 1);
+    }) : rows;
+    const thead = el("tr", {}, cols.map(c => el("th", {
+      class: (c.num ? "num " : "") + (c.nosort ? "" : "sortable"), scope: "col",
+      "aria-sort": c.key === key ? (desc ? "descending" : "ascending") : null,
+      onclick: c.nosort ? null : () => { if (st.key === c.key) st.desc = !st.desc; else { st.key = c.key; st.desc = !!c.num; } draw(); }
+    }, c.label + (c.key === key ? (desc ? " ↓" : " ↑") : ""))));
+    const tb = el("tbody");
+    sorted.slice(0, limit).forEach(r => {
+      const tr = el("tr", { class: opts.onRow ? "clickable" : "" }, cols.map(c => el("td", { class: (c.num ? "num " : "") + (c.wrap ? "wrap" : "") }, c.render ? c.render(r) : (r[c.key] ?? "–"))));
+      if (opts.onRow) tr.addEventListener("click", () => opts.onRow(r, tr, cols.length));
+      tb.append(tr);
+      if (opts.isOpen && opts.isOpen(r)) opts.onRow(r, tr, cols.length, true);
+    });
+    const tbl = el("table", {}, el("thead", {}, thead), tb);
+    const kids = [tbl];
+    if (sorted.length > limit) kids.push(el("button", { class: "showmore", onclick: () => { st.limit = 1e9; draw(); } }, `Show all ${sorted.length}`));
+    wrap.replaceChildren(...kids);
+  }
+  draw();
+  return wrap;
+}
+// <details> whose open/closed state survives refreshes
+function det(summary, ...kids) { return detK(summary, summary, ...kids); }
+function detK(key, summary, ...kids) {
+  S.ui.open = S.ui.open || {};
+  const k = S.tab + ":" + key;
+  const d = el("details", { open: !!S.ui.open[k] }, el("summary", {}, summary), ...kids);
+  d.addEventListener("toggle", () => { S.ui.open[k] = d.open; });
+  return d;
+}
+
+// ---------------------------------------------------------------------------
+// state & data
+// ---------------------------------------------------------------------------
+const S = { now: null, slow: null, findings: null, hist: null, spark: null, range: +(store("skj_range") || 24),
+  tab: location.hash.slice(1) || "overview", ui: {} };
+const PUBLIC = window.SKJ_PUBLIC === true;
+function publicPath(path) {
+  if (path.startsWith("/api/history")) return path.includes("prefix=pi:") ? "data/spark.json" : "data/history.json";
+  const m = path.match(/^\/api\/(\w+)/);
+  return m ? `data/${m[1]}.json` : path;
+}
+async function get(path) {
+  if (PUBLIC) path = publicPath(path) + "?t=" + Date.now();
+  const r = await fetch(path, { credentials: "same-origin", cache: "no-store" });
+  if (r.status === 403) throw new Error("Access token missing: open the URL printed by `skjdash url`.");
+  if (!r.ok) throw new Error(path + ": HTTP " + r.status);
+  return r.json();
+}
+let lastErr = null;
+async function refresh(what) {
+  document.getElementById("main").classList.add("loading");
+  try {
+    if (what.includes("now")) S.now = await get("/api/now");
+    if (what.includes("slow")) S.slow = await get("/api/slow");
+    if (what.includes("findings")) S.findings = await get("/api/findings");
+    if (what.includes("hist")) S.hist = await get(`/api/history?hours=${S.range}&points=300`);
+    if (what.includes("spark")) S.spark = await get(`/api/history?hours=24&prefix=pi:&points=48`);
+    if (what.includes("alloc")) S.alloc = await get("/api/alloc");
+    if (what.includes("people") && !PUBLIC) S.people = await get("/api/people");
+    if (what.includes("status")) S.status = await get(PUBLIC ? "/api/meta" : "/api/status");
+    if (what.includes("lab") && !PUBLIC) { const P = planState(); S.lab = await get("/api/lab" + (P.pi ? "?pi=" + encodeURIComponent(P.pi) : "")); }
+    if (what.includes("lab") && PUBLIC && S.labCode) await unlockLab(S.labCode, !S.ui.linkOpen);
+    lastErr = null;
+  } catch (e) { lastErr = e.message; }
+  render();
+}
+const TABS = (PUBLIC
+  ? [["overview", "Overview"], ["labs", "Labs (PIs)"], ["mylab", "Your lab 🔒"], ["queue", "Waiting jobs"], ["allowances", "Main-account allowances"],
+     ["alloc", "Project allocations"], ["storage", "Storage"], ["issues", "Allocation issues"]]
+  : [["overview", "Overview"], ["labs", "Labs (PIs)"], ["users", "People now"], ["patterns", "People patterns"], ["mylab", "Lab members"], ["queue", "Waiting jobs"],
+     ["allowances", "Main-account allowances"], ["alloc", "Project allocations"], ["plan", "Lab GPU plan"], ["storage", "Storage"], ["issues", "Allocation issues"]]);
+function renderTabs() {
+  $("#tabs").replaceChildren(...TABS.map(([id, label]) => el("button", {
+    role: "tab", "aria-selected": String(S.tab === id),
+    onclick: () => { S.tab = id; location.hash = id; renderTabs(); render(); }
+  }, label)));
+}
+function hhmm(ts) { return ts ? new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–"; }
+function statusLine() {
+  const n = S.now, st = S.status || {};
+  if (lastErr) return "⚠ " + lastErr;
+  if (!n || !n.ts) return "Waiting for the first data…";
+  if (PUBLIC) return `Published from the Skipjack cluster · data from ${ago(st.generated || n.ts)} · updates every ${st.refresh_minutes || 60} minutes`;
+  return `Data from ${ago(st.last_refresh || n.ts)} (${n.host}) · next automatic update ${hhmm(st.next_refresh)}` +
+    (st.refreshing ? " · refreshing now…" : "") + (st.publish && st.publish.enabled ? ` · public site: ${st.publish_msg || ""}` : "");
+}
+function renderBanner() {
+  const st = S.status || {}, b = $("#banner");
+  const ts = PUBLIC ? st.generated : st.last_refresh;
+  const stale = ts && Date.now() / 1000 - ts > 90 * 60;
+  b.replaceChildren(...(PUBLIC && (stale || lastErr) ? [el("div", { class: "stale" }, el("b", {}, "Waiting to get a compute node — the dashboard will be back soon. "),
+    `The cluster job that publishes these numbers is queued${ts ? `; the data below is from ${new Date(ts * 1000).toLocaleString()}` : ""}.`)] : []));
+}
+function render() {
+  const n = S.now;
+  $("#updated").textContent = statusLine();
+  renderBanner();
+  const main = $("#main");
+  main.classList.remove("loading");
+  if (!n || !n.totals) { main.replaceChildren(el("p", { class: "muted" }, "No data yet.")); return; }
+  const f = { overview: vOverview, labs: vLabs, users: vUsers, queue: vQueue, allowances: vAllowances, alloc: vAlloc, plan: vPlan, patterns: vPatterns, mylab: vLabMembers, storage: vStorage, issues: vIssues }[S.tab] || vOverview;
+  const ae = document.activeElement, fk = ae && ae.dataset ? ae.dataset.k : null;
+  let caret = null; try { caret = fk ? ae.selectionStart : null; } catch (e) {}
+  const y = window.scrollY;
+  main.replaceChildren(...[].concat(f()));
+  if (fk) { const n2 = main.querySelector(`[data-k="${fk}"]`); if (n2) { n2.focus(); try { if (caret != null) n2.setSelectionRange(caret, caret); } catch (e) {} } }
+  window.scrollTo(0, y);
+}
+
+// ---------------------------------------------------------------------------
+// views
+// ---------------------------------------------------------------------------
+const REPO_URL = "https://github.com/mvp18/skipjack-dashboard";
+function aboutNote() {
+  return el("p", { class: "sub", style: "margin:0 0 14px" }, "🚧 This dashboard is under active construction and contributions are welcome. Found a bug or a wrong number? ",
+    el("a", { href: REPO_URL + "/issues", target: "_blank", rel: "noopener" }, "Open an issue on GitHub"), ".");
+}
+// Price of each GPU per hour, A100 = base. $ = billing weight / 1000 (the weight is credits per GPU-minute;
+// ARCH's billing code reads it as tenths of a cent per GPU-hour), so $/h = credits per GPU-hour / 60,000.
+function priceCard() {
+  const T = ((S.now && S.now.types) || []).filter(t => t.price_hour);
+  const base = T.find(t => t.type === "a100");
+  if (!T.length || !base) return null;
+  const b = (S.alloc && S.alloc.billing) || {};
+  const rows = T.map(t => ({ ...t, usd: t.price_hour / 60000, x: t.price_hour / base.price_hour })).sort((a, c) => c.usd - a.usd);
+  const maxX = Math.max(...rows.map(r => r.x));
+  const h100 = rows.find(r => r.type === "h100");
+  const WHO = { ALL: "everyone", jhu: "JHU", schmidt: "Schmidt" };
+  const who = r => (r.allow || []).length ? (r.allow.includes("ALL") ? "everyone" : r.allow.map(x => WHO[x] || x).join(", ")) : "";
+  const only = rows.filter(r => (r.allow || []).length && !r.allow.includes("ALL") && !r.allow.includes("jhu"));
+  const card = el("div", { class: "card" }, el("h2", {}, "What each GPU costs per hour"),
+    el("p", { class: "sub" }, el("b", {}, `Base: one A100 = $${(base.price_hour / 60000).toFixed(3)} per GPU-hour; every other GPU is a multiple of that. `),
+      "These are the prices implied by the cluster's own billing weights. ",
+      el("b", {}, b.rates_all_zero === false ? "ARCH has set billing rates; check with ARCH what is charged." : "Nothing is charged today."),
+      " If ARCH switches billing on, jobs on project and condo accounts would be billed to the cost center the PI attached to the project; main accounts" +
+      ((b.free_account_prefixes || []).length ? ` and ${b.free_account_prefixes.map(p => p + "…").join(" / ")} accounts` : "") +
+      " stay free; a main account spends credits from its monthly allowance instead (the credits column)." +
+      (only.length ? ` ${only.map(r => r.label).join(" and ")} can only be used by ${who(only[0])} accounts.` : "") +
+      (h100 ? ` Example: one H100 for a 24-hour job = $${n0(24 * h100.usd)}; 8 H100s for a week = $${n0(8 * 168 * h100.usd)}.` : "")));
+  for (const r of rows) {
+    card.append(el("div", { class: "brow" },
+      el("div", { class: "name", title: r.type }, r.mig ? "A100 MIG slice" : r.label, el("small", {}, `${r.vram} · ${n0(r.price_hour)} credits / GPU-hour` + (who(r) && who(r) !== "JHU" ? ` · ${who(r)}` : ""))),
+      hbar([{ v: r.x, color: tierVar(r.tier || "mid"), label: `${n1(r.x)}× an A100` }], maxX, r.label),
+      el("div", { class: "val" }, el("b", {}, `$${r.usd.toFixed(3)} / h`), ` · ${r.x >= 0.95 && r.x <= 1.05 ? "base (1×)" : n1(r.x) + "× A100"}`)));
+  }
+  card.append(det("Show as table", sortTable([
+    { key: "label", label: "GPU", render: r => r.mig ? "A100 MIG slice" : r.label }, { key: "vram", label: "Memory" },
+    { key: "usd", label: "$ per GPU-hour", num: true, render: r => "$" + r.usd.toFixed(3) },
+    { key: "x", label: "× A100", num: true, render: r => n1(r.x) + "×" },
+    { key: "day", label: "One GPU, 24 h", num: true, sort: r => r.usd, render: r => "$" + n0(24 * r.usd) },
+    { key: "month", label: "One GPU, busy all month", num: true, sort: r => r.usd, render: r => "$" + n0(24 * 30 * r.usd) },
+    { key: "price_hour", label: "Credits per GPU-hour (main accounts)", num: true, render: r => n0(r.price_hour) },
+    { key: "allow", label: "Who can use it", render: r => who(r) || "–" },
+    { key: "total", label: "Installed", num: true }], rows, { id: "gpu-prices", sortKey: "usd" })));
+  return card;
+}
+function vOverview() {
+  const n = S.now, t = n.totals;
+  const tiles = el("div", { class: "tiles" },
+    el("div", { class: "tile hero" }, el("div", { class: "label" }, "GPUs in use right now"),
+      el("div", { class: "value" }, n0(t.used)),
+      el("div", { class: "note" }, `of ${n0(t.inservice)} usable (${pct(100 * t.used / t.inservice, 0)}) · ${n0(t.gpus)} installed`)),
+    el("div", { class: "tile" }, el("div", { class: "label" }, "GPU jobs running"), el("div", { class: "value" }, n0(t.run_gpu_jobs)),
+      el("div", { class: "note" }, `${n0(t.run_jobs)} jobs of any kind`)),
+    el("div", { class: "tile" }, el("div", { class: "label" }, "GPU jobs waiting"), el("div", { class: "value" }, n0(t.pend_gpu_jobs)),
+      el("div", { class: "note" }, `asking for ${n0(t.pend_gpus)} GPUs · ${n0(t.pend_jobs)} waiting jobs of any kind`)),
+    el("div", { class: "tile" }, el("div", { class: "label" }, "GPUs that can't be used"), el("div", { class: "value" }, n0(t.blocked)),
+      el("div", { class: "note" }, "reserved by admins, down, or no free CPUs")),
+    el("div", { class: "tile" }, el("div", { class: "label" }, "Labs / people using GPUs"), el("div", { class: "value" }, `${n0(t.labs_using)} / ${n0(t.users_using)}`),
+      el("div", { class: "note" }, "with at least one GPU right now")));
+
+  // inventory
+  const inv = el("div", { class: "card" }, el("h2", {}, "GPUs by type right now"),
+    el("p", { class: "sub" }, "Coloured part = in use, grey = free, hatched = can't be used."),
+    legend(TIERS.map(t => [tierVar(t), tierName(t)]).concat([["var(--track)", "Free"], [null, "Can't be used", "hatch"]])));
+  const maxT = Math.max(...n.types.map(x => x.total));
+  for (const ty of n.types) {
+    const segs = [{ v: ty.used, color: tierVar(ty.tier), label: "In use" }, { v: ty.free, color: "var(--track)", label: "Free" }, { v: ty.blocked, hatch: true, label: "Can't be used" }];
+    inv.append(el("div", { class: "brow" },
+      el("div", { class: "name", title: ty.type }, ty.mig ? "A100 MIG slices" : ty.label, el("small", {}, `${ty.vram} · ${n0(ty.price_hour)} credits/GPU-hour`)),
+      hbar(segs, maxT, `${ty.label} (${ty.type})`),
+      el("div", { class: "val" }, `${n0(ty.used)} of ${n0(ty.total)} in use` + (ty.blocked ? ` · ${n0(ty.blocked)} unusable` : ""))));
+  }
+  inv.append(det("Show as table", sortTable(
+    [{ key: "label", label: "GPU" }, { key: "tier", label: "Tier" }, { key: "vram", label: "Memory" }, { key: "price_hour", label: "Credits per GPU-hour", num: true, render: r => n0(r.price_hour) },
+     { key: "total", label: "Installed", num: true }, { key: "used", label: "In use", num: true }, { key: "free", label: "Free", num: true }, { key: "blocked", label: "Can't be used", num: true }],
+    n.types, { sortKey: "total" })));
+
+  // trend
+  const trend = el("div", { class: "card" }, el("h2", {}, "GPUs in use over time"),
+    el("p", { class: "sub" }, "Full GPUs held by running jobs. GPU types with similar prices share a line. History older than when the dashboard started is rebuilt from Slurm's accounting records."),
+    legend([["var(--cap)", "Usable GPUs", "line"], ["var(--total)", "All GPUs in use", "line"]].concat(TIERS.map(t => [tierVar(t), tierName(t), "line"]))));
+  const box = el("div", { class: "chart" });
+  trend.append(box);
+  const ser = [{ key: "inservice", label: "Usable GPUs", color: "var(--cap)", width: 1.5 }, { key: "used", label: "All in use", color: "var(--total)" },
+    ...TIERS.map(t => ({ key: "tier:" + t, label: tierName(t), color: tierVar(t) }))];
+  const has = k => S.hist && (S.hist.series[k] || []).some(v => v != null);
+  const serShown = ser.filter(s => has(s.key));
+  trend.replaceChild(legend(serShown.map(s => [s.color, s.label, "line"])), trend.querySelector(".legend"));
+  requestAnimationFrame(() => S.hist && lineChart(box, S.hist, serShown, S.range));
+  if (S.hist && S.hist.ts) {
+    const rows = S.hist.ts.map((ts, i) => ({ ts, ...Object.fromEntries(ser.map(s => [s.key, (S.hist.series[s.key] || [])[i]])) }));
+    trend.append(det("Show as table", sortTable(
+      [{ key: "ts", label: "Time", render: r => new Date(r.ts * 1000).toLocaleString() }, ...ser.map(s => ({ key: s.key, label: s.label, num: true, render: r => n0(r[s.key]) }))],
+      rows, { sortKey: "ts", limit: 50 })));
+  }
+
+  // top labs
+  const pis = n.pis.filter(p => p.gpus > 0).sort((a, b) => b.gpus - a.gpus).slice(0, 12);
+  const maxP = Math.max(1, ...pis.map(p => p.gpus));
+  const top = el("div", { class: "card" }, el("h2", {}, "Labs holding the most GPUs"),
+    el("p", { class: "sub" }, "Click a lab for details. Percent = share of all installed GPUs."),
+    legend(TIERS.map(tt => [tierVar(tt), tierName(tt)])));
+  for (const p of pis) {
+    const row = el("div", { class: "brow clickable", style: "cursor:pointer", onclick: () => { S.ui.labSearch = p.pi; S.tab = "labs"; location.hash = "labs"; renderTabs(); render(); } },
+      el("div", { class: "name" }, p.pi, el("span", { class: "chip" }, p.dept)),
+      hbar(TIERS.map(tt => ({ v: p.tiers[tt], color: tierVar(tt), label: tierName(tt) })), maxP, p.pi),
+      el("div", { class: "val" }, `${n1(p.gpus)} GPUs · ${pct(p.pct_cluster)}`));
+    top.append(row);
+  }
+  const range = el("div", { class: "filters" }, el("label", {}, "Time range"),
+    el("div", { class: "seg", role: "group" }, [[24, "24 hours"], [72, "3 days"], [168, "7 days"], [336, "14 days"], [720, "30 days"]].map(([h, l]) =>
+      el("button", { "aria-pressed": String(S.range === h), onclick: () => { S.range = h; store("skj_range", h); refresh(["hist"]); } }, l))));
+  return [aboutNote(), tiles, priceCard(), range, el("div", { class: "grid2" }, inv, top), trend];
+}
+
+function vLabs() {
+  const n = S.now, usage = (S.slow && S.slow.usage && S.slow.usage.pi) || {};
+  const spark = (S.spark && S.spark.series) || {};
+  const ui = S.ui;
+  ui.labTier = ui.labTier || "all";
+  const search = el("input", { type: "search", "data-k": "labSearch", placeholder: "Search lab, department…", value: ui.labSearch || "", "aria-label": "Search labs",
+    oninput: e => { ui.labSearch = e.target.value; redraw(); } });
+  const tierSel = el("select", { "aria-label": "GPU tier", onchange: e => { ui.labTier = e.target.value; redraw(); } },
+    [["all", "All GPU types"], ...TIERS.map(t => [t, tierName(t) + " only"])].map(([v, l]) => el("option", { value: v, selected: ui.labTier === v }, l)));
+  const waitChk = el("input", { type: "checkbox", checked: !!ui.labWaiting, onchange: e => { ui.labWaiting = e.target.checked; redraw(); } });
+  const holder = el("div");
+  function redraw() {
+    const q = (ui.labSearch || "").toLowerCase(), tier = ui.labTier;
+    const rows = n.pis.map(p => ({ ...p, g: tier === "all" ? p.gpus : (p.tiers[tier] || 0), h24: (usage[p.pi] || {}).h24, d7: (usage[p.pi] || {}).d7,
+      mix7: (usage[p.pi] || {}).mix7 }))
+      .filter(p => (p.g > 0 || (ui.labWaiting && p.pend_gpu_jobs > 0)) && (!q || (p.pi + " " + p.dept + " " + p.school).toLowerCase().includes(q)));
+    const maxG = Math.max(1, ...rows.map(r => r.g));
+    holder.replaceChildren(sortTable([
+      { key: "pi", label: "Lab (PI)" }, { key: "dept", label: "Dept" },
+      { key: "g", label: "GPUs now", num: true, render: r => el("span", {}, miniTiers(tier === "all" ? r.tiers : { [tier]: r.g }, maxG), n1(r.g)) },
+      { key: "pct_cluster", label: "% of all", num: true, render: r => pct(r.pct_cluster) },
+      { key: "cost_share", label: "% of cost", num: true, render: r => pct(r.cost_share) },
+      { key: "run_gpu_jobs", label: "Running", num: true },
+      { key: "pend_gpu_jobs", label: "Waiting", num: true, render: r => r.pend_gpu_jobs ? `${n0(r.pend_gpu_jobs)} (${pl(r.pend_gpus, "GPU")})` : "0" },
+      { key: "users", label: "People", num: true },
+      { key: "mix", label: "GPU mix now", nosort: true, wrap: true, render: r => mixText(r.mix) },
+      { key: "h24", label: "GPU-h 24 h", num: true, render: r => n0(r.h24) },
+      { key: "d7", label: "GPU-h 7 d", num: true, render: r => n0(r.d7) },
+      { key: "allowance_pct", label: "Main allowance used", num: true, render: r => { const a = allocOf(r.pi); return a && a.n_proj + a.n_condo
+        ? el("span", { class: "muted", title: "Not this lab's limit: it can keep running on its project/condo accounts" }, r.allowance_pct == null ? "–" : pct(r.allowance_pct, 0) + " (not the limit)") : meter(r.allowance_pct); } },
+      { key: "projs", label: "Project accts", num: true, sort: r => (allocOf(r.pi) || {}).gpus_at_once || 0, render: r => { const a = allocOf(r.pi); return a && (a.n_proj + a.n_condo) ? `${a.n_proj + a.n_condo} · ${a.gpus_at_once} GPUs` : "–"; } },
+      { key: "spark", label: "Last 24 h", nosort: true, render: r => sparkline(spark["pi:" + r.pi]) },
+    ], rows, { sortKey: "g", onRow: labDetail, isOpen: r => (S.ui.labOpen || {})[r.pi] }));
+  }
+  redraw();
+  return [el("div", { class: "filters" }, search, tierSel, el("label", {}, waitChk, "Include labs that only have waiting jobs")),
+    el("div", { class: "card" }, el("h2", {}, "Labs using GPUs right now"),
+      el("p", { class: "sub" }, "One row per PI, adding up all of the PI's accounts (main, project, condo). Running / Waiting = GPU jobs. % of all = share of every installed GPU. % of cost weighs each GPU by its price (one B300 counts like ~6.7 A100s). GPU-h = GPU-hours used. Main allowance used = the PI's main account this month; it limits only labs without project/condo accounts. Click a row for its accounts and people."),
+      holder)];
+}
+function allocOf(pi) { return S.alloc && S.alloc.pis ? S.alloc.pis.find(p => p.pi === pi) : null; }
+function labDetail(p, tr, ncols, reopen) {
+  S.ui.labOpen = S.ui.labOpen || {};
+  const nx = tr.nextSibling;
+  if (!reopen && nx && nx.classList && nx.classList.contains("detail")) { nx.remove(); S.ui.labOpen[p.pi] = false; return; }
+  S.ui.labOpen[p.pi] = true;
+  const budgets = S.now.budgets.filter(b => b.pi === p.pi);
+  const d = el("td", { colspan: ncols },
+    el("h3", {}, `${p.pi} — accounts`),
+    acctTable(budgets, "lab-accts", 50),
+    el("h3", {}, PUBLIC ? "People" : "People holding GPUs"),
+    PUBLIC ? el("p", { class: "muted" }, "Not shown on the public site.") : el("p", {}, (p.top_users || []).length ? p.top_users.map(u => `${u.user} (${n1(u.gpus)})`).join(", ") : "nobody right now"),
+    p.mix7 ? el("p", { class: "muted" }, "GPU-hours in the last 7 days by type: " + mixText(p.mix7)) : null);
+  tr.after(el("tr", { class: "detail" }, d));
+}
+
+function vUsers() {
+  const n = S.now, u7 = (S.slow && S.slow.usage && S.slow.usage.user) || {}, ui = S.ui;
+  ui.userSort = ui.userSort || "run_jobs";
+  const search = el("input", { type: "search", "data-k": "userSearch", placeholder: "Search person or lab…", value: ui.userSearch || "", "aria-label": "Search people",
+    oninput: e => { ui.userSearch = e.target.value; redraw(); } });
+  const sortSel = el("select", { "aria-label": "Sort by", onchange: e => { ui.userSort = e.target.value; redraw(); } },
+    [["run_jobs", "Most running jobs"], ["pend_jobs", "Most waiting jobs"], ["gpus", "Most GPUs held"], ["pend_gpus", "Most GPUs requested"], ["d7", "Most GPU-hours (7 days)"]]
+      .map(([v, l]) => el("option", { value: v, selected: ui.userSort === v }, l)));
+  const gpuChk = el("input", { type: "checkbox", checked: !!ui.userGpuOnly, onchange: e => { ui.userGpuOnly = e.target.checked; redraw(); } });
+  const holder = el("div");
+  function redraw() {
+    const q = (ui.userSearch || "").toLowerCase(), g = !!ui.userGpuOnly;
+    const rows = n.users.map(u => ({ ...u, rj: g ? u.run_gpu_jobs : u.run_jobs, pj: g ? u.pend_gpu_jobs : u.pend_jobs, d7: (u7[u.user] || {}).d7 }))
+      .filter(u => (u.rj || u.pj) && (!q || (u.user + " " + u.pis.join(" ")).toLowerCase().includes(q)));
+    const key = { run_jobs: "rj", pend_jobs: "pj" }[ui.userSort] || ui.userSort;
+    holder.replaceChildren(sortTable([
+      { key: "user", label: "Person" }, { key: "pis", label: "Lab(s)", sort: r => r.pis.join(","), render: r => r.pis.join(", ") },
+      { key: "rj", label: "Running", num: true, render: r => n0(r.rj) },
+      { key: "pj", label: "Waiting", num: true, render: r => n0(r.pj) },
+      { key: "gpus", label: "GPUs held", num: true, render: r => n1(r.gpus) },
+      { key: "pend_gpus", label: "GPUs asked", num: true, render: r => n0(r.pend_gpus) },
+      { key: "mix", label: "GPU mix", nosort: true, wrap: true, render: r => mixText(r.mix) },
+      { key: "inter", label: "Interactive", num: true },
+      { key: "top_reason", label: "Why waiting", wrap: true, render: r => r.top_reason || "–" },
+      { key: "d7", label: "GPU-h 7 d", num: true, render: r => n0(r.d7) },
+    ], rows, { sortKey: key, limit: 100 }));
+  }
+  redraw();
+  return [el("div", { class: "filters" }, search, sortSel, el("label", {}, gpuChk, "Count GPU jobs only")),
+    el("div", { class: "card" }, el("h2", {}, "People with the most jobs"),
+      el("p", { class: "sub" }, "Running and waiting jobs per person across all their accounts (all jobs, or GPU jobs only with the checkbox). GPUs asked = GPUs requested by waiting jobs. Interactive = running srun/salloc sessions. GPU-h 7 d = GPU-hours used in the last 7 days. Many waiting jobs held by the user usually means a job array or a pipeline."),
+      holder)];
+}
+
+function vQueue() {
+  const n = S.now, ui = S.ui;
+  const gOnly = !!ui.qGpu;
+  const reasons = n.reasons.map(r => ({ ...r, v: gOnly ? r.gpu_jobs : r.jobs })).filter(r => r.v > 0).sort((a, b) => b.v - a.v);
+  const maxR = Math.max(1, ...reasons.map(r => r.v));
+  const rc = el("div", { class: "card" }, el("h2", {}, "Why jobs are waiting"),
+    el("p", { class: "sub" }, gOnly ? "Waiting GPU jobs by the scheduler's reason, in plain words." : "All waiting jobs by the scheduler's reason, in plain words."));
+  for (const r of reasons) rc.append(el("div", { class: "brow wide" }, el("div", { class: "name", title: r.reason + " (" + r.codes.join(", ") + ")" }, r.reason),
+    hbar([{ v: r.v, color: "var(--s1)", label: gOnly ? "GPU jobs" : "Jobs" }], maxR, r.reason + " (" + r.codes.join(", ") + ")"),
+    el("div", { class: "val" }, pl(r.v, "job") + (r.gpus ? ` · ${pl(r.gpus, "GPU")}` : ""))));
+  rc.append(det("Show as table", sortTable([{ key: "reason", label: "Reason" }, { key: "codes", label: "Slurm code", render: r => r.codes.join(", ") },
+    { key: "jobs", label: "Jobs", num: true }, { key: "gpu_jobs", label: "GPU jobs", num: true }, { key: "gpus", label: "GPUs requested", num: true, render: r => n0(r.gpus) }], n.reasons, { sortKey: "jobs" })));
+  const pt = n.pend_by_type.filter(p => p.gpus > 0);
+  const maxP = Math.max(1, ...pt.map(p => p.gpus));
+  const pc = el("div", { class: "card" }, el("h2", {}, "GPUs requested by waiting jobs"),
+    el("p", { class: "sub" }, "\"any\" = the job accepts several GPU types."),
+    legend(TIERS.map(t => [tierVar(t), tierName(t)]).concat([["var(--muted)", "Any type"]])));
+  for (const p of pt) pc.append(el("div", { class: "brow" }, el("div", { class: "name" }, p.type),
+    hbar([{ v: p.gpus, color: p.tier ? tierVar(p.tier) : "var(--muted)", label: "GPUs requested" }], maxP, p.type),
+    el("div", { class: "val" }, `${pl(p.gpus, "GPU")} · ${pl(p.jobs, "job")}`)));
+
+  // fairshare
+  const fsd = (S.slow && S.slow.fairshare && S.slow.fairshare.depts) || {};
+  const depts = Object.keys(fsd).sort();
+  ui.fsDept = ui.fsDept && fsd[ui.fsDept] ? ui.fsDept : (fsd.csci ? "csci" : depts[0]);
+  const fsc = el("div", { class: "card" }, el("h2", {}, "Queue priority inside a department"),
+    el("div", { class: "explain" },
+      el("p", {}, "When GPUs are busy, waiting jobs start in priority order. Most of the priority is the ", el("b", {}, "fairshare"),
+        " score: groups that have used little recently, compared with what they are entitled to, go first. Slurm compares schools first, then departments, then the accounts inside a department."),
+      el("p", {}, "Inside a department, a lab's main account is entitled to 180,000 shares but a project or condo account to 100,000,000. So a main account can rank behind project accounts that used much more. Rank 1 starts first; ", el("b", {}, "▲"), " marks a main account ranked behind a project account that used more.")));
+  const sel = el("select", { "aria-label": "Department", onchange: e => { ui.fsDept = e.target.value; render(); } }, depts.map(d => el("option", { value: d, selected: d === ui.fsDept }, d)));
+  fsc.append(el("div", { class: "filters" }, el("label", {}, "Department", sel)));
+  const rows = (fsd[ui.fsDept] || []).map(r => ({ ...r }));
+  const maxU = Math.max(1, ...rows.map(r => r.use));
+  fsc.append(sortTable([
+    { key: "rank", label: "Priority rank", num: true },
+    { key: "acct", label: "Account", render: r => el("span", {}, r.acct, r.behind && r.behind.length ? el("span", { class: "flag", title: "Ranked behind: " + r.behind.join(", ") }, " ▲ behind " + r.behind.length) : null) },
+    { key: "kind", label: "Type" }, { key: "pi", label: "Lab" },
+    { key: "use", label: "Share of the dept's recent use", num: true, render: r => el("span", {}, el("span", { class: "mini", style: "width:80px" }, el("div", { style: `flex:0 0 ${Math.max(0.5, 100 * r.use / maxU)}%;background:var(--s1)` })), pct(r.use)) },
+    { key: "shares", label: "Shares", num: true, sort: r => +r.shares, render: r => n0(+r.shares) },
+  ], rows, { sortKey: "rank", desc: false }));
+  return [el("div", { class: "filters" }, el("label", {}, el("input", { type: "checkbox", checked: gOnly, onchange: e => { ui.qGpu = e.target.checked; render(); } }), "Count GPU jobs only")),
+    el("div", { class: "grid2" }, rc, pc), fsc];
+}
+
+// one row per lab: main + project + condo accounts merged
+function labRows() {
+  const A = S.alloc, n = S.now;
+  const byPi = {};
+  for (const b of (n.budgets || [])) (byPi[b.pi] = byPi[b.pi] || []).push(b);
+  const LU = A && A.lab_usage && A.lab_usage.windows ? A.lab_usage.windows.month : null;
+  return (A && A.pis ? A.pis : []).map(p => {
+    const bs = byPi[p.pi] || [];
+    const main = bs.find(b => b.kind === "main");
+    const kills = bs.reduce((a, b) => { const x = killsFor(b.acct); return { jobs: a.jobs + x.jobs, events: a.events + x.events }; }, { jobs: 0, events: 0 });
+    const u = LU && LU.labs[p.pi];
+    return { ...p, hasP: p.n_proj + p.n_condo > 0, main_pct: main ? main.pct : null, budgets: bs, kills,
+      gpus_now: bs.reduce((a, b) => a + (b.gpus_now || 0), 0),
+      month_h: u ? u.gpu_h : 0, month_usd: u ? u.usd : 0, month_bill: u ? u.usd_billable : 0 };
+  });
+}
+// The lab this dashboard belongs to (bold, "your lab", own-lab tiles). Never on the public site: there every lab,
+// ours included, is a pseudonym and nothing is marked as ours.
+function myLab() {
+  if (PUBLIC) return null;
+  const st = S.status || {};
+  return (S.lab && S.lab.pi) || (st.publish && st.publish.own_lab) || planState().pi || null;
+}
+
+function vAllowances() {
+  const n = S.now, st = n.std, ui = S.ui, A = S.alloc;
+  const me = myLab();
+  const prices = Object.entries(st.prices).sort((a, b) => b[1] - a[1]);
+  const LU = A && A.lab_usage && A.lab_usage.windows ? A.lab_usage.windows.month : null;
+  const intro = el("div", { class: "card" }, el("h2", {}, "What limits each lab this month"),
+    el("ul", { class: "tight explain" },
+      el("li", {}, el("b", {}, "Only main accounts have a monthly allowance. "), "The main account is the one named after the PI (the PI's own username) that everyone in the lab submits to by default. Project accounts (PI_project) and condo accounts have no monthly allowance."),
+      el("li", {}, el("b", {}, "Labs with only a main account"), ` are limited by its monthly credit allowance, shared by the whole lab. The standard is ${n0(st.billing)} credits ≈ ${n0(st.h100_hours)} H100-hours or ${n0(st.a100_hours)} A100-hours; it resets on ${st.reset}, and in between used credits halve every ${n0(st.half_life_days)} days.`),
+      el("li", {}, el("b", {}, "Going over 100% ends every running job on the main account"), " (they show as TIMEOUT) and its new jobs wait; jobs on the lab's project or condo accounts carry on. It is not charged as money — compute is free for now."),
+      el("li", {}, el("b", {}, "Labs with project or condo accounts"), " have no monthly hour limit on those accounts — only a cap on GPUs at once (16, 32 or 64 per account). Their main account's % is shown for reference, but it is not what limits them.")),
+    det("Price per GPU-hour", sortTable([{ key: 0, label: "GPU" }, { key: 1, label: "Credits per GPU-hour", num: true, render: r => n0(r[1]) },
+      { key: 2, label: "Hours the standard main allowance buys", num: true, render: r => n0(st.billing / r[1]) }], prices, { sortKey: 1 })));
+
+  ui.laKind = ui.laKind || "all";
+  const search = el("input", { type: "search", "data-k": "laSearch", placeholder: "Search lab or department…", value: ui.laSearch || "", "aria-label": "Search labs", oninput: e => { ui.laSearch = e.target.value; render(); } });
+  const q = (ui.laSearch || "").toLowerCase();
+  const all = labRows();
+  const rows = all.filter(r => (ui.laKind === "all" || (ui.laKind === "main" ? !r.hasP : r.hasP))
+    && (!ui.laNear || (!r.hasP && r.main_pct != null && r.main_pct >= 80)) && (!q || (r.pi + " " + r.dept).toLowerCase().includes(q)));
+  const nMain = all.filter(r => !r.hasP).length, nP = all.length - nMain;
+  const nFull = all.filter(r => !r.hasP && r.main_pct != null && r.main_pct >= 80).length;
+  const table = el("div", { class: "card" }, el("h2", {}, "Every lab — main, project and condo accounts together"),
+    el("p", { class: "sub" }, `${nMain} labs depend on their main allowance (${nFull} of them at 80% or more); ${nP} have project or condo accounts. Click a lab for its accounts.` +
+      (LU ? ` "This month" = GPU-hours since ${LU.start} on all of the lab's accounts, and what they would cost at the prices implied by ARCH's billing weights (not charged today).` : "")),
+    el("div", { class: "filters" }, search,
+      el("div", { class: "seg" }, [["all", "All labs"], ["main", "Main allowance only"], ["proj", "With project/condo accounts"]].map(([k, l]) =>
+        el("button", { "aria-pressed": String(k === ui.laKind), onclick: () => { ui.laKind = k; render(); } }, l))),
+      el("label", {}, el("input", { type: "checkbox", checked: !!ui.laNear, onchange: e => { ui.laNear = e.target.checked; render(); } }), "Only 80% or more used")),
+    sortTable([
+      { key: "pi", label: "Lab", render: r => r.pi === me ? el("b", {}, r.pi) : r.pi }, { key: "dept", label: "Dept" },
+      { key: "limit", label: "Limited by", sort: r => r.hasP ? 1e6 + (r.gpus_at_once || 0) : (r.main_pct ?? -1),
+        render: r => r.hasP ? el("span", {}, el("b", {}, r.gpus_at_once ? `${r.gpus_at_once} GPUs at once` : "no cap"), el("span", { class: "muted" }, " · no hour limit"))
+          : el("span", {}, "Main allowance ", meter(r.main_pct)) },
+      { key: "main_credits", label: "Main allowance", num: true, render: r => r.main_credits == null ? "no limit" : `$${n0(r.main_usd)} (${n1(r.main_credits / 1e6)}M)` },
+      { key: "main_pct", label: "Main used", num: true, render: r => r.hasP ? el("span", { class: "muted", title: "Not this lab's limit: it can keep running on its project/condo accounts" }, r.main_pct == null ? "–" : pct(r.main_pct, 0) + " (not the limit)") : meter(r.main_pct) },
+      { key: "n_proj", label: "Projects + condos", num: true, sort: r => r.n_proj + r.n_condo, render: r => r.hasP ? `${r.n_proj} + ${r.n_condo}` : "–" },
+      { key: "gpus_now", label: "GPUs now", num: true, render: r => n0(r.gpus_now) },
+      { key: "month_h", label: "GPU-h this month", num: true, render: r => n0(r.month_h) },
+      { key: "month_usd", label: "This month at ARCH prices", num: true, render: r => r.month_usd ? el("span", { title: `$${n0(r.month_bill)} of it on billable (project/condo) accounts` }, "$" + n0(r.month_usd)) : "–" },
+      { key: "kills", label: "Jobs ended at limit (14 d)", num: true, sort: r => r.kills.jobs, render: r => r.kills.jobs ? el("span", { class: "warn" }, `${n0(r.kills.jobs)} (${n0(r.kills.events)}×)`) : "–" },
+      { key: "members", label: "People", num: true },
+    ], rows, { id: "lab-allow2", sortKey: "limit", limit: 40, onRow: allowDetail, isOpen: r => (S.ui.allowOpen || {})[r.pi] }));
+
+  // every account separately (collapsed)
+  ui.bKind = ui.bKind || "all";
+  const accts = n.budgets.filter(b => !q || (b.acct + " " + b.pi + " " + b.dept).toLowerCase().includes(q));
+  const every = el("div", { class: "card" }, det("Every account separately (" + accts.length + ")", acctTable(accts, "every-acct", 150)));
+  return [intro, perUserCard("allowances"), table, every];
+}
+function acctTable(rows, id, limit) {
+  const st = S.now.std;
+  return sortTable([
+    { key: "acct", label: "Account" }, { key: "pi", label: "Lab" }, { key: "kind", label: "Type" },
+    { key: "limit", label: "Credits / month", num: true, render: r => r.limit ? n0(r.limit) : "no practical limit" },
+    { key: "pct", label: "Used this month", num: true, render: r => r.kind === "main" ? meter(r.pct) : r.limit ? meter(r.pct) : el("span", { class: "muted" }, "no hour limit") },
+    { key: "left_a100", label: "Left (A100-h)", num: true, render: r => r.limit ? n0(r.left_a100) : "–" },
+    { key: "running_commit", label: "Still to run (H100-h)", num: true, render: r => { const h = r.running_commit / st.prices.h100; return !r.running_commit ? "–" : h < 1 ? "<1" : n0(h); } },
+    { key: "cap_acct", label: "Max GPUs at once", num: true, render: r => r.cap_acct ?? "none" },
+    { key: "gpus_now", label: "GPUs now", num: true },
+    { key: "killed", label: "Jobs ended at limit (14 d)", num: true, sort: r => killsFor(r.acct).jobs, render: r => { const k = killsFor(r.acct); return k.jobs ? el("span", { class: "warn", title: `${k.events} times, last ${k.last}` }, `${n0(k.jobs)} (${n0(k.events)}×)`) : "–"; } },
+    { key: "users", label: "People", num: true },
+  ], rows, { id, sortKey: "pct", limit });
+}
+function allowDetail(p, tr, ncols, reopen) {
+  S.ui.allowOpen = S.ui.allowOpen || {};
+  const nx = tr.nextSibling;
+  if (!reopen && nx && nx.classList && nx.classList.contains("detail")) { nx.remove(); S.ui.allowOpen[p.pi] = false; return; }
+  S.ui.allowOpen[p.pi] = true;
+  tr.after(el("tr", { class: "detail" }, el("td", { colspan: ncols }, el("h3", {}, `${p.pi} — accounts`), acctTable(p.budgets, "acct-of-lab", 50))));
+}
+
+// ---------------------------------------------------------------------------
+// People (PRIVATE only — never published): shared helpers
+// ---------------------------------------------------------------------------
+function costThr() {
+  const T = (S.people && S.people.thresholds) || {};
+  if (S.ui.costThr == null) S.ui.costThr = +(store("skj_costthr") || T.usd_month || 2000);
+  return S.ui.costThr;
+}
+// server flags + the adjustable "high cost" flag (not on windows shorter than a week)
+function flagsOf(r, W) {
+  const T = S.people.thresholds, f = r.flags.slice();
+  if (W.days >= (T.usd_min_days || 7) && r.usd_month >= costThr()) f.push(`high cost (~$${n0(r.usd_month)}/month)`);
+  return f;
+}
+function winSeg(PPL, key, onPick) {
+  return el("div", { class: "seg" }, PPL.order.filter(k => PPL.windows[k]).map(k =>
+    el("button", { "aria-pressed": String(k === key), onclick: () => onPick(k) }, PPL.windows[k].label)));
+}
+function costInput() {
+  return el("label", { title: "People whose GPU use, priced at ARCH's implied rates, would cost more than this per month are flagged" }, "Flag cost above $",
+    el("input", { type: "number", min: 100, step: 100, value: costThr(), style: "width:80px", "data-k": "costThr",
+      onchange: e => { S.ui.costThr = Math.max(100, +e.target.value || 2000); store("skj_costthr", S.ui.costThr); render(); } }), "/ month");
+}
+const acctText = (r, pi) => Object.entries(r.accts || {}).map(([a, h]) => `${a === pi ? "main" : a} ${n0(h)}`).join(" · ") || "–";
+
+// What one lab would be billed this month, from its members' recent GPU use (prices implied by ARCH's billing weights)
+function labBillCard(PPL, pi, ap) {
+  const R = PPL.rates || {}, ui = S.ui;
+  const now = new Date(), dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), H = dim * 24;
+  const bases = ["d30", "d7"].filter(k => PPL.windows[k]);
+  ui.lbWin = bases.includes(ui.lbWin) ? ui.lbWin : bases[0];
+  const W = PPL.windows[ui.lbWin], M = PPL.windows.month, P = PPL.windows.prev;
+  const L = W && W.labs[pi];
+  if (!L) return null;
+  const f = dim / W.days;                                   // this window's daily rate x days in this month
+  const mRow = u => ((M && M.rows.find(x => x.pi === pi && x.user === u)) || {});
+  const rows = W.rows.filter(r => r.pi === pi).map(r => ({ user: r.user, gpu_h: r.gpu_h, types: r.types, exp: r.usd * f, bill: r.usd_billable * f,
+    so_far: mRow(r.user).usd_billable || 0 }));
+  const exp = L.usd * f, bill = L.usd_billable * f;
+  const ML = M && M.labs[pi], PL = P && P.labs[pi];
+  const blend = L.gpu_h ? L.usd / L.gpu_h : R.a100 || 0;
+  const capG = ap ? ap.gpus_at_once || 0 : 0;
+  const base = R.a100 || 1;
+  const byType = Object.entries(L.types || {}).filter(([, h]) => h >= 0.5).map(([g, h]) => ({ g, h: h * f, r: R[g] || 0, usd: h * f * (R[g] || 0) })).sort((a, b) => b.usd - a.usd);
+  const tile = (label, value, note, hero) => el("div", { class: "tile" + (hero ? " hero" : "") }, el("div", { class: "label" }, label),
+    el("div", { class: "value", style: hero ? "font-size:40px" : "" }, value), el("div", { class: "note" }, note));
+  return el("div", { class: "card" }, el("h2", {}, `Expected bill this month — ${pi}`),
+    el("p", { class: "sub" }, `From the lab's GPU use in the ${W.label.toLowerCase()}, scaled to the ${dim} days of this month, at the prices implied by ARCH's billing weights ` +
+      `(A100 $${base.toFixed(3)} per GPU-hour; ` + byType.filter(x => x.g !== "a100").map(x => `${tl(x.g)} ${n1(x.r / base)}×`).join(", ") + `). ` +
+      "Nothing is billed today. If ARCH switches billing on, only jobs on project and condo accounts are charged, to the PI's cost center; the main account stays free."),
+    el("div", { class: "filters" }, el("span", { class: "muted" }, "Based on the"),
+      el("div", { class: "seg" }, bases.map(k => el("button", { "aria-pressed": String(k === ui.lbWin), onclick: () => { ui.lbWin = k; render(); } }, PPL.windows[k].label.replace(/^Last/, "last"))))),
+    el("div", { class: "tiles" },
+      tile("Would be billed this month", usd0(bill), bill >= 1 ? "GPU use on project/condo accounts" : "nothing: all of this lab's GPU use is on the free main account", true),
+      tile("All GPU use at these prices", usd0(exp), "including the free main account"),
+      ML ? tile("So far this month", usd0(ML.usd_billable), `billable, of ${usd0(ML.usd)} in all since ${M.start}`) : null,
+      PL ? tile(`Actual, ${P.label}`, usd0(PL.usd_billable), `billable, of ${usd0(PL.usd)} in all`) : null,
+      capG ? tile("Most it could be", usd0(capG * H * blend), `all ${capG} project/condo GPUs busy every hour, at the lab's GPU mix ($${blend.toFixed(2)} per GPU-hour)`) : null),
+    sortTable([{ key: "user", label: "Person" }, { key: "gpu_h", label: `GPU-h (${W.label.toLowerCase()})`, num: true, render: r => n0(r.gpu_h) },
+      { key: "exp", label: "Expected this month", num: true, render: r => usd0(r.exp) }, { key: "bill", label: "…billable part", num: true, render: r => r.bill >= 1 ? usd0(r.bill) : "–" },
+      { key: "so_far", label: "Billable so far", num: true, render: r => r.so_far >= 1 ? usd0(r.so_far) : "–" },
+      { key: "types", label: "GPU mix (GPU-h)", nosort: true, render: r => typesText(r.types) }], rows, { id: "lab-bill", sortKey: "exp", limit: 15 }),
+    det("By GPU type", sortTable([{ key: "g", label: "GPU", render: r => tl(r.g) }, { key: "h", label: "GPU-hours this month (expected)", num: true, render: r => n0(r.h) },
+      { key: "r", label: "$ per GPU-hour", num: true, render: r => "$" + r.r.toFixed(3) }, { key: "usd", label: "Expected cost", num: true, render: r => usd0(r.usd) }],
+      byType, { id: "lab-bill-type", sortKey: "usd" })));
+}
+
+// ---------------------------------------------------------------------------
+// Locked lab pages on the public site: data/lab/<id>.json, encrypted with the lab's access code
+// (PBKDF2-SHA256 -> AES-256-GCM, see seal() in skj_public.py). The code never leaves the browser.
+// ---------------------------------------------------------------------------
+const CROCK = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+function normCode(s) { return [...String(s).toUpperCase().replace(/O/g, "0").replace(/[IL]/g, "1")].filter(c => CROCK.includes(c)).join(""); }
+function unstore(k) { try { localStorage.removeItem(k); } catch (e) {} }
+async function openLab(code) {
+  const c = normCode(code), enc = new TextEncoder();
+  if (c.length !== 20) throw new Error("An access code has 20 letters and digits (XXXXX-XXXXX-XXXXX-XXXXX).");
+  if (!(window.crypto && crypto.subtle)) throw new Error("This browser cannot open locked pages (it needs HTTPS and a current browser).");
+  const id = [...new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode("skj-lab-id|" + c)))].map(b => b.toString(16).padStart(2, "0")).join("").slice(0, 24);
+  const r = await fetch(`data/lab/${id}.json?t=${Date.now()}`, { cache: "no-store" });
+  if (r.status === 404) { const e = new Error("No lab page matches this code. Check it for typos; if the code was replaced, ask for the new one."); e.gone = true; throw e; }
+  if (!r.ok) throw new Error("Could not load the lab page (HTTP " + r.status + ").");
+  const box = await r.json(), b64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+  const base = await crypto.subtle.importKey("raw", enc.encode(c), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(box.salt), iterations: box.iter, hash: "SHA-256" }, base,
+    { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+  let pt;
+  try { pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(box.iv), additionalData: enc.encode(id) }, key, b64(box.ct)); }
+  catch (e) { throw new Error("This code does not open the page."); }
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function unlockLab(code, quiet) {
+  const ui = S.ui;
+  ui.unlocking = true; ui.unlockErr = null;
+  if (!quiet) render();
+  try {
+    const b = await openLab(code);
+    S.locked = b; S.people = b.people; S.labCode = code;
+    if (ui.codeKeep !== false) store("skj_lab_code", code);
+  } catch (e) {
+    if (quiet) { if (e.gone) { S.locked = null; S.people = null; S.labCode = null; unstore("skj_lab_code"); } }
+    else { ui.unlockErr = e.message; S.labCode = null; }
+  }
+  ui.unlocking = false; ui.linkOpen = false;
+  if (!quiet) render();
+}
+function lockLab() {
+  S.locked = null; S.people = null; S.labCode = null; S.ui.codeIn = ""; unstore("skj_lab_code"); render();
+}
+function unlockCard() {
+  const ui = S.ui;
+  return el("div", { class: "card" }, el("h2", {}, "Your lab's page"),
+    el("p", { class: "sub" }, "Each lab can have a locked page: its members' GPU use (by username) on the main and project accounts, flags for patterns worth a look, and what the lab would be billed this month at the prices implied by ARCH's billing weights. PIs receive an access code by email; the page is decrypted in your browser and the code is never sent anywhere."),
+    el("form", { class: "filters", onsubmit: ev => { ev.preventDefault(); unlockLab(ui.codeIn || "", false); } },
+      el("input", { type: "text", "data-k": "codeIn", placeholder: "XXXXX-XXXXX-XXXXX-XXXXX", autocomplete: "off", spellcheck: "false", "aria-label": "Access code",
+        value: ui.codeIn || "", style: "width:270px;font-family:ui-monospace,Menlo,Consolas,monospace", oninput: e => { ui.codeIn = e.target.value; } }),
+      el("label", {}, el("input", { type: "checkbox", checked: ui.codeKeep !== false, onchange: e => { ui.codeKeep = e.target.checked; } }), "Remember on this device"),
+      el("button", { type: "submit", disabled: !!ui.unlocking }, ui.unlocking ? "Opening…" : "Open")),
+    ui.unlockErr ? el("p", {}, el("span", { class: "flag" }, ui.unlockErr)) : null,
+    el("p", { class: "sub" }, "A PI who would like a page for their lab: ", el("a", { href: REPO_URL + "/issues", target: "_blank", rel: "noopener" }, "ask on GitHub"), "."));
+}
+
+// ---------------------------------------------------------------------------
+// Why limits should be per person, not only per lab. Numbers from the "per-user" finding
+// (labs named, people never).
+// ---------------------------------------------------------------------------
+const PP_LEAD = "Every limit on Skipjack is set per lab: one monthly allowance per main account, one GPUs-at-once cap per project account, one quota per lab directory. Inside a lab it is first come, first served, so one person's use decides whether everyone else can work.";
+function perUserCase() {
+  const f = S.findings && (S.findings.findings || []).find(x => x.id === "per-user");
+  return f && f.case ? f.case : null;
+}
+function perUserTiles(C, storageFirst) {
+  const k = C.kills || {}, w = C.waits || {}, it = C.interactive || {}, st = C.storage || {}, c = C.conc || {};
+  const tile = (value, label, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const t = [
+    k.events ? tile(n0(k.events) + "×", `a lab's running jobs were all ended (last ${k.days} days)`,
+      `The lab went over its shared main allowance, so Slurm ended every running job on it: ${n0(k.jobs)} jobs of ${n0(k.people)} people, ${n0(k.multi_events)} times several people's at once.`) : null,
+    c.n ? tile(`${c.over50} of ${c.n}`, "labs where one person used over half the GPU-hours",
+      `Labs with 3+ people using GPUs, last 30 days (over three quarters in ${c.over75}). ${n0(C.above2x_h)} GPU-hours went beyond twice an equal share.`) : null,
+    w.people ? tile(n0(w.hours) + " h", "of waiting behind one lab-mate",
+      `${n0(w.people)} people in ${n0(w.n_labs)} labs waited for their own project account while a single lab-mate held half or more of its GPUs (last 30 days; overlapping jobs counted once).`) : null,
+    it.big_h ? tile(n0(it.big_h) + " GPU-h", "in large interactive sessions",
+      `Shells and VS Code sessions holding 4+ GPUs for 8+ hours, last 30 days. ${n0(it.excess_h)} GPU-hours of interactive use went beyond 2 GPUs × 8 hours.`) : null,
+    tile(n0(st.full_labs), "labs with storage 90%+ full",
+      `${n0(st.people)} people share those quotas. There is one quota per lab directory and no per-person quota or report: when one person fills it, everyone's jobs fail to write.`),
+  ].filter(Boolean);
+  if (storageFirst) t.unshift(t.pop());
+  return el("div", { class: "tiles" }, t);
+}
+function perUserBody(C) {
+  const T = C.today || {};
+  const rows = [
+    ["Main account (free)", "one monthly allowance for the whole lab", "One person can spend it; then Slurm ends everyone's running jobs and the lab waits until the 1st.",
+      "Each person gets about twice an equal split (allowance ÷ members × 2): only that person's jobs stop."],
+    ["Project and condo accounts (billable)", `GPUs at once per account (16, 32 or 64); per person the same: ${T.cap_user || "16"}`,
+      "One person can hold every GPU of the account for up to 3 days while lab-mates wait, and if billing starts, the PI pays for it.", "At most half of the account per person (8 of 16)."],
+    ["Interactive GPU sessions", "nothing beyond the above", "GPUs held for hours or days by shells and VS Code sessions, which are meant for debugging.",
+      "2 GPUs and 8 hours per interactive session; long work goes in batch jobs."],
+    ["Storage (scratch, project)", "one quota per lab directory", "One person can fill it and everyone's writes fail; the PI cannot see who uses what.",
+      "Per-person quotas inside the lab directory, or at least a per-person usage report."],
+    ["Who can change limits", `only ARCH (${n0(T.coords)} account coordinators on the cluster)`, "A PI can neither protect members from each other nor give someone more for a deadline.",
+      "Each PI coordinates their own accounts: raise or lower a member's limit with one command."]];
+  const cols = ["Resource", "Limit today", "What goes wrong", "With a per-person limit"].map((label, i) => ({ key: i, label, wrap: i > 0, nosort: true }));
+  return [perUserTiles(C),
+    el("h3", {}, "What a per-person limit would change"),
+    sortTable(cols, rows, { id: "pp-limits" }),
+    el("p", { class: "sub" }, "Lab totals stay the same: the members' limits add up to more than the lab's, so they only stop someone using far more than the others, and only that person's jobs stop."),
+    det("Common objections", el("ul", { class: "tight explain" },
+      el("li", {}, el("b", {}, "\"The lab's limit already prevents abuse.\" "), "It protects the cluster from a lab, not the lab's members from each other."),
+      el("li", {}, el("b", {}, "\"It will slow down someone with a deadline.\" "), "At about twice an equal share most people never reach their limit, and a PI who coordinates the account can raise one person's limit in a minute."),
+      el("li", {}, el("b", {}, "\"Heavy use is not misuse.\" "), "Often it isn't: one big training run looks the same. A per-person limit turns a race into a decision the PI makes."),
+      el("li", {}, el("b", {}, "\"This needs new software.\" "), `No: Skipjack already uses each piece somewhere. ${T.gpu_caps ? n0(T.gpu_caps) + " people have their own GPU cap on condo accounts (set to the condo's size), " : ""}QOS caps per person exist (e.g. 16 GPUs on jhu, 1 on class), every main account has a monthly limit, and home folders have a quota per person. Only scratch needs a convention: WEKA 4.4 quotas are per folder, so each person's quota goes on their folder inside the lab directory.`))),
+    det("Commands for ARCH", el("pre", { style: "white-space:pre-wrap;font-size:12px;margin:6px 0" },
+      "# 0. slurm.conf: a job that would overrun a budget waits instead of being killed\n" +
+      "AccountingStorageEnforce=associations,limits,qos,safe\n" +
+      "# 1. GPUs at once per person: half of every project account ...\n" +
+      "sacctmgr modify qos jhu set MaxTRESPerUser=gres/gpu=8     # jhu2: 16, jhu4: 32\n" +
+      "#    ... or per account and person (as already done on condo accounts)\n" +
+      "sacctmgr modify user where account=<account> set GrpTRES=gres/gpu=<n>\n" +
+      "# 2. GPU-hours per person: fades over 30 days, resets on the 1st (a monthly budget)\n" +
+      "sacctmgr modify user where account=<account> set GrpTRESMins=gres/gpu=<GPU-hours x 60>\n" +
+      "#    on a main account, in credits: GrpTRESMins=billing=<allowance / members x 2>\n" +
+      "#    weekly: cap what running jobs may still use (jobs wait; nothing is killed) ...\n" +
+      "sacctmgr modify user where account=<account> set GrpTRESRunMins=gres/gpu=<GPUs x days x 1440>\n" +
+      "#    ... or reset usage every Monday (cron; also clears that person's fairshare history)\n" +
+      "sacctmgr -i modify user where account=<account> set RawUsage=0\n" +
+      "# 3. interactive GPU sessions (srun/salloc, routed by job_submit.lua): 2 GPUs, 8 hours\n" +
+      "sacctmgr add qos interactive_gpu set MaxTRESPerUser=gres/gpu=2 MaxWall=08:00:00\n" +
+      "# 4. PIs as coordinators of their own accounts (they can then change their members' limits)\n" +
+      "sacctmgr add coordinator account=<pi>,<pi>_<project> names=<pi>\n" +
+      "# 5. storage per person: WEKA 4.4 has folder quotas only (nested up to 4 levels; the lab quota still applies)\n" +
+      "weka fs quota set /weka/scratch/jhu/<pi>/<user> --hard <size>\n" +
+      "weka fs quota set-default /weka/scratch/jhu/<pi> --hard <size>    # folders created later"))];
+}
+function perUserCard(where) {
+  const C = perUserCase();
+  if (!C) return null;
+  const go = el("a", { href: "#issues", onclick: ev => { ev.preventDefault(); location.hash = "issues";
+    setTimeout(() => { const n = document.getElementById("f-per-user"); if (n) n.scrollIntoView({ behavior: "smooth" }); }, 80); } },
+    "what a per-person limit would change, and the commands");
+  return el("div", { class: "card" }, el("h2", {}, "Why each person needs their own limit, not just each lab"),
+    el("p", { class: "sub" }, PP_LEAD + " See ", go, " (Allocation issues)."),
+    perUserTiles(C, where === "storage"));
+}
+
+// ---------------------------------------------------------------------------
+// Lab members: one PI's people across the main and project accounts
+// ---------------------------------------------------------------------------
+function vLabMembers() {
+  const LK = PUBLIC ? S.locked : null;
+  if (PUBLIC && !LK) return unlockCard();
+  const PPL = S.people, ui = S.ui, A = S.alloc;
+  if (!PPL || !PPL.windows) return el("p", { class: "muted" }, "Computed with the hourly refresh (about a minute after the dashboard starts).");
+  const labs = LK ? [LK.pi] : [...new Set([].concat(...PPL.order.map(k => Object.keys(PPL.windows[k].labs)), (A && A.pis ? A.pis.map(p => p.pi) : [])))].sort();
+  ui.mlPi = LK ? LK.pi : ui.mlPi || myLab();
+  ui.mlWin = PPL.windows[ui.mlWin] ? ui.mlWin : "d30";
+  const pi = ui.mlPi, W = PPL.windows[ui.mlWin], T = PPL.thresholds, R = PPL.rates || {};
+  const L = W.labs[pi], ap = LK ? LK.alloc : A && A.pis ? A.pis.find(p => p.pi === pi) : null;
+  const rows = W.rows.filter(r => r.pi === pi).map(r => ({ ...r, all: flagsOf(r, W) }));
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const accts = ap ? [`main account (${ap.main_credits == null ? "no limit" : `$${n0(ap.main_usd)} / ${n1(ap.main_credits / 1e6)}M credits a month`})`]
+    .concat(ap.accounts.map(a => `${a.acct} (${a.kind}, ${a.cap ? a.cap + " GPUs at once" : "no cap"})`)) : [];
+  const head = el("div", { class: "card" }, el("h2", {}, "Lab members' GPU use"),
+    el("p", { class: "sub" }, LK
+      ? `Locked page for ${pi}'s lab${LK.dept ? ` (${LK.dept})` : ""}, opened with the lab's access code: only people with the code can read it, and it is decrypted in this browser. Each member's GPU use across the lab's main and project accounts, what it would cost at ARCH's implied prices, and flags worth a look. Data from ${LK.generated_text}; updated every hour.`
+      : "Private view — only on this dashboard (locked per-lab copies go to the public site for labs with an access code: skjdash codes). Pick a lab to see each member's GPU use across the lab's main and project accounts, what it would cost at ARCH's implied prices, and the same flags as People patterns."),
+    el("div", { class: "filters" },
+      LK ? el("button", { onclick: lockLab, title: "Close the page and forget the code on this device" }, "Lock this page")
+        : el("select", { "aria-label": "Lab (PI)", onchange: e => { ui.mlPi = e.target.value; render(); } },
+          labs.map(x => el("option", { value: x, selected: x === pi }, x + (x === myLab() ? " (your lab)" : "")))),
+      winSeg(PPL, ui.mlWin, k => { ui.mlWin = k; render(); }), costInput()),
+    accts.length ? el("p", { class: "sub" }, "Accounts: " + accts.join(" · ")) : null);
+  if (!L || !rows.length) return [head, el("p", { class: "muted" }, `No GPU jobs on ${pi}'s accounts in this period.`)];
+  const flagged = rows.filter(r => r.all.length).length;
+  const top = rows.slice().sort((a, b) => b.gpu_h - a.gpu_h)[0];
+  head.append(el("div", { class: "tiles" },
+    tile("GPU-hours", n0(L.gpu_h), `${W.label.toLowerCase()} · ${typesText(L.types)}`),
+    tile("At ARCH's prices", usd0(L.usd), W.days >= 7 ? `≈ $${n0(L.usd_month)} a month at this pace` : `${n1(W.days)} days so far`),
+    tile("Billable part", L.usd_billable ? usd0(L.usd_billable) : "$0", L.usd_billable ? "on project/condo accounts (billed to the PI's cost center if rates were set)" : "all on the free main account today"),
+    tile("People using GPUs", n0(rows.length), `${flagged} flagged`),
+    tile("Heaviest user", pct(top.share, 0), `of the lab's GPU-hours (${n0(top.gpu_h)} GPU-h, ${n1(top.times_equal)}× an equal share)`)));
+
+  // bars: each person's GPU-hours vs an equal share
+  const eq = L.gpu_h / Math.max(rows.length, 1);
+  const sorted = rows.slice().sort((a, b) => b.gpu_h - a.gpu_h);
+  const maxV = Math.max(eq * 1.2, Math.min(eq * 8, sorted[0].gpu_h));
+  const bars = el("div", { class: "card" }, el("h2", {}, "Who used how much"),
+    el("p", { class: "sub" }, `Bars = each person's GPU-hours ${W.label.toLowerCase()}; black line = an equal share (${n0(eq)} GPU-h = the lab's total ÷ ${rows.length} people who used GPUs). ▶ = off the scale.`));
+  for (const r of sorted) bars.append(el("div", { class: "brow" }, el("div", { class: "name" }, r.user, el("small", {}, `${pct(r.share, 0)} of the lab · ${usd0(r.usd)}`)),
+    el("div", { class: "need", title: `${r.user}: ${n0(r.gpu_h)} GPU-h` },
+      el("div", { class: "fill", style: `width:${Math.max(0.5, 100 * Math.min(r.gpu_h, maxV) / maxV)}%;${r.all.length ? "background:var(--serious)" : ""}` }),
+      el("div", { class: "ref", style: `left:${100 * eq / maxV}%` }), r.gpu_h > maxV ? el("span", { class: "clip", "aria-hidden": "true" }, "▶") : null),
+    el("div", { class: "val" }, r.times_equal >= 1.05 ? `▲ ${n1(r.times_equal)}× an equal share` : `${pct(100 * r.times_equal, 0)} of an equal share`)));
+  bars.append(legend([["var(--s1)", "GPU-hours"], ["var(--serious)", "Flagged (see table)"], ["var(--ink)", "Equal share", "line"]]));
+
+  const table = el("div", { class: "card" }, el("h2", {}, "Details per person"), sortTable([
+    { key: "user", label: "Person" },
+    { key: "all", label: "Flags", wrap: true, sort: r => r.all.length, render: r => r.all.length ? el("span", { class: "flag" }, r.all.join(" · ")) : "–" },
+    { key: "gpu_h", label: "GPU-h", num: true, render: r => n0(r.gpu_h) },
+    { key: "share", label: "Share of lab", num: true, render: r => pct(r.share, 0) },
+    { key: "times_equal", label: "× equal share", num: true, render: r => n1(r.times_equal) + "×" },
+    { key: "usd", label: "At ARCH prices", num: true, render: r => usd0(r.usd) },
+    { key: "usd_month", label: "Per month (pace)", num: true, render: r => W.days >= 7 ? usd0(r.usd_month) : "–" },
+    { key: "types", label: "GPU mix (GPU-h)", nosort: true, render: r => typesText(r.types) },
+    { key: "accts", label: "Accounts (GPU-h)", nosort: true, wrap: true, render: r => acctText(r, pi) },
+    { key: "inter_pct", label: "Interactive", num: true, render: r => pct(r.inter_pct, 0) },
+    { key: "big_h", label: "Large interactive (GPU-h)", num: true, render: r => r.big_h ? `${n0(r.big_h)} (${r.big_n})` : "–" },
+    { key: "examples", label: "Largest interactive sessions", nosort: true, wrap: true, render: r => r.examples.length ? r.examples.map(x => `${x.gpus}×${tl(x.gtype)} ${n1(x.hours)} h`).join(", ") : "–" },
+  ], rows, { id: "lab-members", sortKey: "gpu_h" }),
+    det("What the flags mean", el("ul", { class: "tight explain" },
+      el("li", {}, el("b", {}, "Large interactive GPU sessions: "), `srun/salloc/VS Code sessions holding ${T.big_gpus}+ GPUs for ${T.big_hours}+ hours, ${T.big_min_h}+ GPU-hours in all. Interactive GPU sessions are for debugging; long multi-GPU work belongs in batch jobs. CPU-only interactive sessions are not counted.`),
+      el("li", {}, el("b", {}, "Interactive only: "), `${T.inter_only_min_h}+ GPU-hours, all interactive, no batch jobs.`),
+      el("li", {}, el("b", {}, "N× an equal share: "), `${T.times_equal}× or more of the lab's GPU-hours divided by the people who used GPUs (labs with ${T.min_lab_people}+ people).`),
+      el("li", {}, el("b", {}, "High cost: "), `GPU use that would cost more than $${n0(costThr())} a month at ARCH's implied prices (${Object.entries(R).filter(([g]) => ["h100", "a100", "l40s"].includes(g)).map(([g, v]) => `${tl(g)} $${v.toFixed(3)}`).join(", ")} per GPU-hour). Not flagged on windows shorter than ${T.usd_min_days || 7} days.`),
+      el("li", {}, "None of these is proof of misuse — a deadline or one big training run looks the same. GPU utilisation and work over VS Code/ssh are not recorded on this cluster."))));
+  return [head, labBillCard(PPL, pi, ap), bars, table];
+}
+
+// ---------------------------------------------------------------------------
+// People patterns: everyone, every lab
+// ---------------------------------------------------------------------------
+function vPatterns() {
+  const PPL = S.people, ui = S.ui;
+  if (PUBLIC) return el("p", { class: "muted" }, "Not available on the public site.");
+  if (!PPL || !PPL.windows) return el("p", { class: "muted" }, "Computed with the hourly refresh (about a minute after the dashboard starts).");
+  ui.ppWin = PPL.windows[ui.ppWin] ? ui.ppWin : "d30";
+  const W = PPL.windows[ui.ppWin], T = PPL.thresholds;
+  const me = myLab();
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const labs = [...new Set(W.rows.map(r => r.pi))].sort();
+  ui.ppLab = ui.ppLab ?? "";
+  const q = (ui.ppSearch || "").toLowerCase();
+  const all = W.rows.map(r => ({ ...r, all: flagsOf(r, W) }));
+  const rows = all.filter(r => (!ui.ppLab || r.pi === ui.ppLab) && (!ui.ppFlagged || r.all.length) && (!q || (r.user + " " + r.pi).toLowerCase().includes(q)));
+  const intro = el("div", { class: "card" }, el("h2", {}, "GPU usage patterns per person"),
+    el("p", { class: "explain" }, "Private view — only for you and your advisor (never published). Only ", el("b", {}, "GPU"),
+      " jobs count; CPU-only interactive sessions are fine and left out. Flags use what Slurm records reliably (how a job was submitted, GPUs, hours) and the cost at ARCH's implied prices — see \"What the flags mean\" in the Lab members tab. \"No activity recorded\" is shown for context only: work over VS Code/ssh and GPU use are not recorded here."),
+    el("div", { class: "filters" },
+      winSeg(PPL, ui.ppWin, k => { ui.ppWin = k; render(); }),
+      el("select", { "aria-label": "Lab", onchange: e => { ui.ppLab = e.target.value; render(); } },
+        [el("option", { value: "" }, "All labs")].concat(labs.map(x => el("option", { value: x, selected: x === ui.ppLab }, x + (x === me ? " (your lab)" : ""))))),
+      el("input", { type: "search", "data-k": "ppSearch", placeholder: "Search person or lab…", value: ui.ppSearch || "", oninput: e => { ui.ppSearch = e.target.value; render(); } }),
+      el("label", {}, el("input", { type: "checkbox", checked: !!ui.ppFlagged, onchange: e => { ui.ppFlagged = e.target.checked; render(); } }), "Only flagged people"), costInput()),
+    el("div", { class: "tiles" },
+      tile("People using GPUs", n0(W.people), `${n0(all.filter(r => r.all.length).length)} flagged · ${W.label.toLowerCase()}`),
+      tile("Interactive GPU-hours", pct(100 * W.inter_h / Math.max(W.gpu_h, 1), 0), `${n0(W.inter_h)} of ${n0(W.gpu_h)} GPU-hours`),
+      tile("In large interactive sessions", n0(W.big_h) + " GPU-h", `${T.big_gpus}+ GPUs for ${T.big_hours}+ h, interactively`),
+      tile("All GPU use at ARCH's prices", usd0(W.usd), `not charged today · updated ${PPL.generated}`)));
+  const table = el("div", { class: "card" }, sortTable([
+    { key: "user", label: "Person", render: r => r.pi === me ? el("b", {}, r.user) : r.user }, { key: "pi", label: "Lab" },
+    { key: "all", label: "Flags", wrap: true, sort: r => r.all.length, render: r => r.all.length ? el("span", { class: "flag" }, r.all.join(" · ")) : "–" },
+    { key: "gpu_h", label: "GPU-h", num: true, render: r => n0(r.gpu_h) },
+    { key: "times_equal", label: "× equal share", num: true, render: r => r.lab_people >= 2 ? n1(r.times_equal) + "×" : "–" },
+    { key: "usd", label: "At ARCH prices", num: true, render: r => usd0(r.usd) },
+    { key: "inter_pct", label: "Interactive", num: true, render: r => pct(r.inter_pct, 0) },
+    { key: "big_h", label: "Large interactive (GPU-h)", num: true, render: r => r.big_h ? `${n0(r.big_h)} (${r.big_n})` : "–" },
+    { key: "batch_h", label: "Batch GPU-h", num: true, render: r => n0(r.batch_h) },
+    { key: "idle_h", label: "No activity recorded*", num: true, render: r => r.idle_h ? `${n0(r.idle_h)} GPU-h` : "–" },
+    { key: "lab_people", label: "Lab people", num: true },
+    { key: "examples", label: "Largest interactive sessions", nosort: true, wrap: true, render: r => r.examples.length ? r.examples.map(x => `${x.gpus}×${tl(x.gtype)} ${n1(x.hours)} h`).join(", ") : "–" },
+  ], rows, { id: "people-patterns", sortKey: "all", limit: 60 }),
+    el("p", { class: "sub" }, "* Context only — see above. Equal share = the lab's GPU-hours divided by the number of its people who used GPUs in the period."));
+  return [intro, table];
+}
+
+function killsFor(acct) {
+  const f = S.findings && (S.findings.findings || []).find(x => x.id === "killed");
+  return (f && f.kill && f.kill.accounts[acct]) || { jobs: 0, events: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Lab GPU plan: fair split of a lab's allocation (GPUs at once with project accounts, credits without)
+// ---------------------------------------------------------------------------
+const PLAN_TYPES = [["a100", "A100"], ["h100", "H100"], ["l40s", "L40S"]];
+// other GPU types folded into the nearest of the three by price class
+const TYPE_CLASS = { a100: "a100", rtx_pro_6000: "a100", h100: "h100", h200: "h100", b200: "h100", b300: "h100", l40s: "l40s", "2g.20gb": "l40s" };
+function planState() {
+  if (!S.ui.plan) {
+    let saved = {}; try { saved = JSON.parse(store("skj_plan") || "{}") || {}; } catch (e) {}
+    S.ui.plan = Object.assign({ pi: null, scen: "current", custom: 20, members: null, refill: false, reserve: 5, mix: null,
+      speed: { a100: 1, h100: 2, l40s: 0.6 }, big: 50, job: { n: 1, h: 24, t: "a100" } }, saved);
+  }
+  return S.ui.plan;
+}
+function savePlan() { store("skj_plan", JSON.stringify(S.ui.plan)); }
+// max-min fair split (water-filling): the LP "maximise the smallest share, total <= budget,
+// nobody gets more than they need" — small needs are met in full, the rest is split equally.
+function waterfill(needs, budget) {
+  const idx = needs.map((d, i) => i).sort((a, b) => needs[a] - needs[b]);
+  const out = new Array(needs.length).fill(0);
+  let left = budget;
+  idx.forEach((i, k) => { const eq = left / (idx.length - k); out[i] = Math.min(needs[i], eq); left -= out[i]; });
+  return out;
+}
+function vPlan() {
+  const P = planState(), L = S.lab;
+  if (!L) return el("p", { class: "muted" }, "Loading the lab's numbers…");
+  if (L.error) return el("p", { class: "warn" }, L.error);
+  if (P.pi !== L.pi) { P.pi = L.pi; P.members = L.members; P.mix = null; }
+  if (!P.members) P.members = L.members;
+  const A = S.alloc, ty = (A && A.typical_project) || {}, usd = (A && A.usd_gpu_hour) || {};
+  const price = { a100: L.prices.a100, h100: L.prices.h100, l40s: L.prices.l40s };
+  const scen = planScenarios(L, P);
+  const sc = scen.find(x => x.k === P.scen) || scen[0];
+  // A lab with project/condo accounts is limited by GPUs at once (no hour limit); a main-only lab by its credit allowance.
+  const capG = sc.accounts.reduce((a, x) => a + x.cap, 0), hasP = capG > 0;
+  // recent use, folded into the three classes: credits (what an allowance limits) and GPU-hours (what a GPUs-at-once cap limits)
+  const usedC = { a100: 0, h100: 0, l40s: 0, cpu: 0 }, usedH = { a100: 0, h100: 0, l40s: 0 };
+  const needC = {}, needH = {};
+  for (const [u, m] of Object.entries(L.usage30)) {
+    let c = 0, h = 0;
+    for (const [g, v] of Object.entries(m.credits)) { const k = g === "cpu" ? "cpu" : TYPE_CLASS[g] || "a100"; usedC[k] += v; c += v; }
+    for (const [g, v] of Object.entries(m.hours)) { if (g !== "cpu") { usedH[TYPE_CLASS[g] || "a100"] += v; h += v; } }
+    needC[u] = c; needH[u] = h;
+  }
+  const need = hasP ? needH : needC, unit = hasP ? "GPU-h" : "credits";
+  // the mix is a share of credits for a main-only lab and a share of GPU-hours for a lab with project accounts
+  const mixKind = hasP ? "hours" : "credits";
+  if (!P.mix || P.mixKind !== mixKind) {
+    const src = hasP ? usedH : usedC, g = src.a100 + src.h100 + src.l40s;
+    P.mix = g ? { a100: Math.round(100 * src.a100 / g), h100: Math.round(100 * src.h100 / g), l40s: 0 } : { a100: 34, h100: 33, l40s: 33 };
+    if (g) P.mix.l40s = 100 - P.mix.a100 - P.mix.h100;
+    P.mixKind = mixKind;
+  }
+  const base = sc.v || 0;
+  const now = new Date(), days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(), H = days * 24;
+  const budget = base * (1 - P.reserve / 100);                 // main-allowance credits left for GPU work
+  const N = Math.max(1, P.members | 0);
+  const mixSum = PLAN_TYPES.reduce((a, [t]) => a + (+P.mix[t] || 0), 0) || 1;
+  const frac = Object.fromEntries(PLAN_TYPES.map(([t]) => [t, (+P.mix[t] || 0) / mixSum]));
+  // main allowance as GPU-hours at the mix
+  const mainH = hasP ? budget / Math.max(PLAN_TYPES.reduce((a, [t]) => a + frac[t] * price[t], 0), 1e-9)
+    : PLAN_TYPES.reduce((a, [t]) => a + budget * frac[t] / price[t], 0);
+  // project/condo accounts: GPUs at once x hours, at the chosen level of use
+  const LU = A && A.lab_usage && A.lab_usage.windows ? A.lab_usage.windows.d30 : null;
+  const refLab = sc.k === "custom" ? null : sc.k === "current" ? L.pi : sc.k;
+  const lu = refLab && LU ? LU.labs[refLab] : null;
+  const actualP = lu ? ((lu.kinds || {}).project || 0) + ((lu.kinds || {}).condo || 0) : null;
+  const levels = [["typical", "Typical project use"]].concat(actualP != null ? [["actual", `${refLab}'s own last 30 days`]] : [], [["ceiling", "Every GPU busy"]]);
+  if (!levels.some(x => x[0] === P.level)) P.level = "typical";
+  const projRows = sc.accounts.map(a => ({ ...a, typ: Math.min(a.cap * H, (ty.median || 0) * a.cap / 16), busy: Math.min(a.cap * H, (ty.p75 || 0) * a.cap / 16), ceil: a.cap * H }));
+  const projH = !hasP ? 0 : P.level === "ceiling" ? capG * H : P.level === "actual" ? Math.min(capG * H, actualP * days / 30) : projRows.reduce((a, r) => a + r.typ, 0);
+  const labH = mainH + projH;
+  const share = hasP ? labH / N : budget / N;                  // one member's fair share, in `unit`
+  const hrs = Object.fromEntries(PLAN_TYPES.map(([t]) => [t, hasP ? share * frac[t] : share * frac[t] / price[t]]));
+  const set = (fn) => { fn(); savePlan(); render(); };
+
+  // ---- inputs
+  const labSel = el("select", { "aria-label": "Lab", onchange: e => { P.pi = e.target.value; P.members = null; P.mix = null; savePlan(); refresh(["lab"]); } },
+    L.labs.map(x => el("option", { value: x, selected: x === L.pi }, x)));
+  const scenSeg = el("div", { class: "seg", role: "group" }, scen.map(x => el("button", { "aria-pressed": String(x.k === sc.k), onclick: () => set(() => { P.scen = x.k; }) },
+    x.label)));
+  P.nproj = P.nproj ?? 1;
+  const custom = P.scen === "custom" ? el("span", { style: "display:inline-flex;gap:8px;align-items:center;flex-wrap:wrap" },
+    el("label", {}, el("input", { type: "number", min: 0, step: 1, value: P.custom, "data-k": "planCustom",
+      onchange: e => set(() => { P.custom = Math.max(0, +e.target.value || 0); }) }), "M credits"),
+    el("span", { class: "muted" }, "+ project accounts:"),
+    el("div", { class: "seg" }, [0, 1, 2, 3, 4].map(k => el("button", { "aria-pressed": String(k === P.nproj), onclick: () => set(() => { P.nproj = k; }) }, String(k))))) : null;
+  const inputs = el("div", { class: "plan-in" },
+    el("div", { class: "grp" }, "Lab", labSel),
+    el("div", { class: "grp" }, "Allocation (main allowance + project accounts)", el("div", { style: "display:flex;gap:8px;align-items:center;flex-wrap:wrap" }, scenSeg, custom)),
+    el("div", { class: "grp" }, "Lab members", el("input", { type: "number", min: 1, value: N, "data-k": "planN", onchange: e => set(() => { P.members = Math.max(1, +e.target.value | 0); }) })),
+    el("div", { class: "grp" }, "Keep back for CPU jobs (% of the main allowance)", el("input", { type: "number", min: 0, max: 90, value: P.reserve, "data-k": "planRes", onchange: e => set(() => { P.reserve = Math.min(90, Math.max(0, +e.target.value || 0)); }) })),
+    el("button", { class: "theme", onclick: () => document.body.classList.toggle("present") }, "Presentation view"));
+
+  // ---- 1. headline
+  const kills = Object.values(L.kills || {}).reduce((a, k) => ({ events: a.events + k.events, jobs: a.jobs + k.jobs }), { events: 0, jobs: 0 });
+  const labHasP = Object.values(L.account_kinds || {}).some(k => k !== "main");
+  const killNote = kills.jobs ? el("p", { class: "callout" }, el("b", {}, `In the last 14 days Slurm ended ${n0(kills.jobs)} of this lab's running jobs (${kills.events} times) `),
+    labHasP ? "because the main account went over its allowance (project accounts are not affected). Run long jobs on the project accounts and keep the main account for short tests."
+      : "because the main account went over its monthly allowance. Pacing usage through the month avoids losing work this way.") : null;
+  const typeLine = PLAN_TYPES.map(([t, l]) => `${n0(hrs[t])} h ${l}`).join(" + ");
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  let head;
+  if (hasP) {
+    const pr = sc.accounts.filter(a => a.kind === "project"), co = sc.accounts.filter(a => a.kind === "condo");
+    const levelNote = { typical: `if each project/condo account is as busy as a typical active project (${n0(ty.median)} GPU-h a month per 16 GPUs), plus the main allowance`,
+      actual: `at the pace of ${refLab}'s project/condo accounts over the last 30 days (${n0(actualP)} GPU-h), plus the main allowance`,
+      ceiling: `if all ${capG} GPUs ran every hour of the month's ${days} days, plus the main allowance; the queue rarely allows this` }[P.level];
+    head = el("div", { class: "card" }, el("h2", {}, `Fair share for each of ${N} members: ${n1(capG / N)} GPUs at once`),
+      el("p", { class: "sub" }, `This allocation is limited by GPUs at once, not by credits: ${pr.length} project` + (co.length ? ` and ${co.length} condo` : "") +
+        ` account(s) may hold ${capG} GPUs at the same time (${sc.accounts.map(a => a.cap).join(" + ")}) and have no monthly hour limit. ` +
+        `The main account's ${n1(base / 1e6)}M-credit allowance adds only about ${n0(mainH)} GPU-hours a month on top.`),
+      el("div", { class: "filters" }, el("span", { class: "muted" }, "GPU-hours to plan with:"),
+        el("div", { class: "seg" }, levels.map(([k, l]) => el("button", { "aria-pressed": String(k === P.level), onclick: () => set(() => { P.level = k; }) }, l)))),
+      el("div", { class: "tiles" },
+        el("div", { class: "tile hero" }, el("div", { class: "label" }, "Each member's fair share, at any moment"), el("div", { class: "value", style: "font-size:40px" }, `${n1(capG / N)} GPUs`),
+          el("div", { class: "note" }, `${capG} GPUs at once ÷ ${N} members. Nothing enforces this today: one person may take every GPU of an account.`)),
+        tile("Each member, per month", `${n0(share)} GPU-h`, levelNote),
+        tile("Whole lab, per month", `${n0(labH)} GPU-h`, `${n0(projH)} on project/condo accounts + ${n0(mainH)} from the main allowance`),
+        tile("From the main allowance alone", `${n1(mainH / N)} GPU-h`, "per member: the main account's credits only, which is not what limits this lab")),
+      el("p", { class: "sub" }, `At the GPU mix below a member's ${n0(share)} GPU-hours are ${typeLine}.`),
+      killNote,
+      det(`The ${sc.accounts.length} accounts`, sortTable([{ key: "acct", label: "Account" }, { key: "kind", label: "Type" }, { key: "cap", label: "GPUs at once", num: true },
+        { key: "used30", label: "Used, last 30 days (GPU-h)", num: true, render: r => r.used30 == null ? "–" : n0(r.used30) },
+        { key: "typ", label: "Typical (GPU-h/month)", num: true, render: r => n0(r.typ) }, { key: "busy", label: "Busy", num: true, render: r => n0(r.busy) },
+        { key: "ceil", label: "Every GPU busy", num: true, render: r => n0(r.ceil) }], projRows, { id: "plan-proj-accts", sortKey: "cap" }),
+        el("p", { class: "sub" }, `"Typical" and "busy" are the median and top quarter of active project accounts on the cluster (per 16 GPUs). A cap only helps when GPUs are free; the cluster's caps add up to ${A ? n1(A.caps_total / A.jhu_gpus) : "?"}× its GPUs.`)));
+  } else {
+    const refillPct = Math.round(100 * Math.LN2 * days / (L.half_life_days || 30));
+    head = el("div", { class: "card" }, el("h2", {}, `Fair monthly share for each of ${N} members`),
+      el("p", { class: "sub" }, `This allocation has no project accounts, so the main account's credit allowance is the limit. Budget: ${n0(base)} credits/month` +
+        (P.reserve ? ` minus ${P.reserve}% kept for CPU work` : "") + ` = ${n0(budget)} credits, split equally. Prices per GPU-hour: ` +
+        PLAN_TYPES.map(([t, l]) => `${l} ${n0(price[t])}`).join(", ") + " credits."),
+      el("div", { class: "tiles" },
+        el("div", { class: "tile hero wide" }, el("div", { class: "label" }, "Each member, per month, at the mix below"), el("div", { class: "big" }, PLAN_TYPES.map(([t, l]) => `${n1(hrs[t])} h ${l}`).join(" + ")),
+          el("div", { class: "note" }, `${n0(share)} credits · about ${n1(share / days / price.a100 * 60)} A100-minutes per day`)),
+        ...PLAN_TYPES.map(([t, l]) => tile(`…or spent only on ${l}`, `${n1(share / price[t])} h`, `${n1(share / price[t] / days * 60)} minutes per day`)),
+        el("div", { class: "tile" }, el("div", { class: "label" }, "Whole lab, per month (GPU-hours)"),
+          PLAN_TYPES.map(([t, l]) => el("div", { style: "font-size:18px;font-weight:600" }, `${n0(hrs[t] * N)} h ${l}`)),
+          el("div", { class: "note" }, "at the mix below"))),
+      killNote,
+      det("How the allowance is counted", el("ul", { class: "tight explain" },
+        el("li", {}, `It resets on the 1st of each month.`),
+        el("li", {}, `In between, Slurm slowly forgets used credits: they halve every ${n0(L.half_life_days || 30)} days, so about 2% of what the lab has used comes back each day. ` +
+          `A lab that reaches its limit early and stays there could squeeze out up to ~${refillPct}% more by the end of the month.`),
+        el("li", {}, "The plan ignores that extra on purpose: every time the lab touches 100%, Slurm ends all of its running jobs."))));
+  }
+
+  // mix sliders
+  const mixCard = el("div", { class: "card" }, el("h2", {}, "How each member's share is spent"),
+    el("p", { class: "sub" }, (hasP ? "Percent of the GPU-hours on each type. Starts from what the lab actually ran in the last 30 days" : "Percent of the credits spent on each GPU type. Starts from what the lab actually used in the last 30 days") +
+      " (H200, B200 and B300 counted as H100; RTX PRO 6000 as A100)."));
+  for (const [t, l] of PLAN_TYPES) {
+    mixCard.append(el("div", { class: "mixrow" }, el("span", {}, l),
+      el("input", { type: "range", min: 0, max: 100, value: Math.round(100 * frac[t]), "aria-label": l + " share", onchange: e => set(() => {
+        const v = +e.target.value, others = PLAN_TYPES.map(x => x[0]).filter(x => x !== t), rest = others.reduce((a, x) => a + (+P.mix[x] || 0), 0);
+        P.mix[t] = v; others.forEach(x => { P.mix[x] = rest ? (100 - v) * (+P.mix[x] || 0) / rest : (100 - v) / 2; });
+      }) }),
+      el("span", { class: "num" }, pct(100 * frac[t], 0)), el("span", { class: "val muted" }, `${n1(hrs[t])} h / member`)));
+  }
+  const presets = [["Our last 30 days", null], ["Equal", { a100: 34, h100: 33, l40s: 33 }]].concat(hasP ? [] : [["Most compute (LP)", "lp"]]);
+  mixCard.append(el("div", { class: "filters", style: "margin-top:10px" }, el("span", { class: "muted" }, "Presets:"),
+    el("div", { class: "seg" }, presets.map(([lab, m]) =>
+      el("button", { onclick: () => set(() => { P.mix = m === "lp" ? Object.assign({}, lpMix().mix) : m ? Object.assign({}, m) : null; }) }, lab)))));
+
+  // ---- 2. need-based fair split
+  const members = Object.keys(need).sort((a, b) => need[b] - need[a]);
+  const nKnown = members.filter(u => need[u] > 0).length;
+  const NN = Math.max(N, nKnown);
+  const total = hasP ? labH : budget;
+  const needs = members.map(u => need[u] > 0 ? need[u] : Infinity).concat(new Array(NN - members.length).fill(Infinity));
+  const alloc = waterfill(needs, total);
+  const eq = total / NN;
+  const totalNeed = members.reduce((a, u) => a + need[u], 0);
+  const over = members.filter(u => need[u] > eq).length;
+  // linear scale, capped at 12 fair shares so one heavy user doesn't hide everyone else
+  const maxV = Math.max(eq * 1.2, Math.min(eq * 12, Math.max(0, ...members.map(u => need[u]))));
+  const fair = el("div", { class: "card" }, el("h2", {}, "Who would fit in a fair share? (last 30 days)"),
+    el("p", { class: "sub" }, (hasP
+      ? `Bars = each person's GPU-hours in the last 30 days on all of the lab's accounts (main, project and condo). Black line = an equal share of the lab's ${n0(labH)} GPU-hours a month (${n0(eq)} GPU-h). `
+      : `Bars = what each person's GPU and CPU jobs of the last 30 days would cost at today's prices. Black line = an equal share (${n0(eq)} credits). `) +
+      `Bars ending in ▶ go off the scale; the number on the right is exact. In total the lab used ${n0(totalNeed)} ${unit} — ${n1(totalNeed / Math.max(total, 1))}× this plan's ${hasP ? "monthly GPU-hours" : "budget"}; ` +
+      `${over} of ${members.length} people with jobs were above an equal share.` + (hasP ? "" : " Most of that period was before GPUs were priced (Sep 22), so it shows demand, not what was charged.")));
+  members.forEach(u => {
+    fair.append(el("div", { class: "brow" }, el("div", { class: "name" }, u),
+      el("div", { class: "need", title: `${u}: ${n0(need[u])} ${unit}` },
+        el("div", { class: "fill", style: `width:${Math.max(0.5, 100 * Math.min(need[u], maxV) / maxV)}%` }),
+        el("div", { class: "ref", style: `left:${100 * eq / maxV}%` }),
+        need[u] > maxV ? el("span", { class: "clip", "aria-hidden": "true" }, "▶") : null),
+      el("div", { class: "val" }, need[u] > eq ? `▲ ${n1(need[u] / eq)}× a fair share` : `${pct(100 * need[u] / eq, 0)} of a fair share`)));
+  });
+  if (NN > members.length) fair.append(el("p", { class: "muted" }, `${NN - members.length} more member(s) ran nothing on this lab's accounts in the last 30 days; each is planned an equal share.`));
+  fair.append(det("How the fair split is computed", el("div", { class: "explain" },
+    el("p", {}, "Equal split: every member gets the lab's monthly " + (hasP ? "GPU-hours" : "budget") + " ÷ members. Need-based split: the ", el("b", {}, "max-min fair"),
+      " allocation — the solution of the linear program “make the smallest member's share as large as possible, with the total within the budget and nobody getting more than they need”. Members who need less than an equal share get exactly their need; what they leave over is split equally among everyone else. No group of members can be given more without taking it from someone who has less."),
+    el("p", {}, "Recent need is taken from the last 30 days; members with no jobs are planned an equal share."))),
+    det("Show as table", sortTable([{ key: "u", label: "Member" }, { key: "need", label: `Last 30 days (${unit})`, num: true, render: r => n0(r.need) },
+      { key: "eq", label: "Equal share", num: true, render: r => n0(r.eq) }, { key: "alloc", label: "Need-based fair share", num: true, render: r => n0(r.alloc) }]
+      .concat(hasP ? [{ key: "gpus", label: "GPUs at once (equal)", num: true, render: () => n1(capG / NN) }] : [{ key: "a100", label: "= A100-hours", num: true, render: r => n1(r.alloc / price.a100) }]),
+      members.map((u, i) => ({ u, need: need[u], eq, alloc: alloc[i] })), { sortKey: "need" })));
+
+  // ---- 3. which GPU
+  const lp = hasP ? null : lpMix();
+  const fastest = PLAN_TYPES.reduce((a, [t]) => P.speed[t] > P.speed[a] ? t : a, "a100");
+  const cheapest = PLAN_TYPES.reduce((a, [t]) => price[t] / P.speed[t] < price[a] / P.speed[a] ? t : a, "a100");
+  const LBL = Object.fromEntries(PLAN_TYPES);
+  const gpuCard = el("div", { class: "card" }, el("h2", {}, hasP ? "Which GPU gets the most done?" : "Which GPU gives the most work per credit?"),
+    el("p", { class: "sub" }, "Speeds are assumptions relative to an A100 (edit them for your models). " +
+      (hasP ? "Under a GPUs-at-once cap every GPU-hour counts the same, so speed decides; price only matters if project accounts start being billed." : "Credits per unit of work = price ÷ speed; lower is better.")),
+    sortTable([{ key: "l", label: "GPU" }, { key: "mem", label: "Memory" },
+      hasP ? { key: "usd", label: "$ / GPU-hour if billed", num: true, render: r => "$" + (r.usd || 0).toFixed(3) } : { key: "p", label: "Credits / GPU-hour", num: true, render: r => n0(r.p) },
+      { key: "sp", label: "Speed vs A100", num: true, nosort: true, render: r => el("input", { type: "number", min: 0.1, step: 0.1, value: P.speed[r.t], style: "width:70px", "data-k": "sp-" + r.t,
+        onchange: e => set(() => { P.speed[r.t] = Math.max(0.1, +e.target.value || 1); }) }) },
+      hasP ? { key: "upw", label: "$ per A100-hour of work", num: true, render: r => "$" + (r.usd / P.speed[r.t]).toFixed(3) } : { key: "cpu", label: "Credits per A100-hour of work", num: true, render: r => n0(r.cpu) },
+      { key: "w", label: "Work per member / month (A100-hours)", num: true, render: r => n1(r.w) }],
+      PLAN_TYPES.map(([t, l]) => ({ t, l, mem: { a100: "80 GB", h100: "80/94 GB", l40s: "48 GB" }[t], p: price[t], usd: usd[t] || 0, cpu: price[t] / P.speed[t],
+        w: hasP ? share * P.speed[t] : share / (price[t] / P.speed[t]) })),
+      { id: "plan-gpu", sortKey: hasP ? "w" : "cpu", desc: !!hasP }),
+    hasP ? el("p", { class: "callout ok" }, el("b", {}, "Most work per member: "),
+      `run what fits on ${LBL[fastest]} (${n1(P.speed[fastest])}× an A100): ${n0(share * P.speed[fastest])} A100-hours of work a month per member, versus ${n0(share)} on A100s. ` +
+      `If billing starts, the cheapest per unit of work is ${LBL[cheapest]} ($${((usd[cheapest] || 0) / P.speed[cheapest]).toFixed(3)} per A100-hour of work).`)
+      : el("div", {}, el("div", { class: "filters", style: "margin-top:12px" }, el("label", {}, "Share of the lab's work that needs more than 48 GB of GPU memory (can't use L40S)",
+        el("input", { type: "number", min: 0, max: 100, value: P.big, style: "width:70px", "data-k": "planBig", onchange: e => set(() => { P.big = Math.min(100, Math.max(0, +e.target.value || 0)); }) }), "%")),
+        el("p", { class: "callout ok" }, el("b", {}, "Most compute for the lab (linear program): "), lp.text)));
+
+  // ---- 4. job cost
+  const J = P.job, jgh = J.n * J.h, jc = jgh * price[J.t];
+  const jobCard = el("div", { class: "card" }, el("h2", {}, "What does a job cost?"),
+    el("div", { class: "filters" },
+      el("label", {}, el("input", { type: "number", min: 1, value: J.n, style: "width:60px", "data-k": "jn", onchange: e => set(() => { J.n = Math.max(1, +e.target.value | 0); }) }), "GPUs ×"),
+      el("label", {}, el("input", { type: "number", min: 0.1, step: 0.5, value: J.h, style: "width:70px", "data-k": "jh", onchange: e => set(() => { J.h = Math.max(0.1, +e.target.value || 1); }) }), "hours on"),
+      el("select", { onchange: e => set(() => { J.t = e.target.value; }) }, PLAN_TYPES.map(([t, l]) => el("option", { value: t, selected: J.t === t }, l)))),
+    hasP ? el("div", {},
+      el("p", { class: "big" }, `${n0(jgh)} GPU-hours`),
+      el("ul", { class: "tight" },
+        el("li", {}, `${pct(100 * jgh / Math.max(share, 1))} of one member's monthly fair share (${n0(share)} GPU-h)` + (jgh > share ? ` — ${n1(jgh / share)} members' shares.` : ".")),
+        el("li", {}, `On a project account it holds ${J.n} of the lab's ${capG} GPUs (${pct(100 * J.n / capG, 0)}) for ${n1(J.h)} hours; ${usd[J.t] ? `$${n0(jgh * usd[J.t])} at ARCH's implied prices if project accounts are billed ($0 today).` : ""}`),
+        el("li", {}, `On the main account: ${n0(jc)} credits = ${pct(100 * jc / Math.max(base, 1))} of its monthly allowance.`)))
+      : el("div", {}, el("p", { class: "big" }, `${n0(jc)} credits`),
+        el("p", {}, `= ${pct(100 * jc / Math.max(base, 1))} of the main account's monthly allowance, or ${pct(100 * jc / Math.max(share, 1))} of one member's fair share` +
+          (jc > share ? ` (${n1(jc / share)} members' shares).` : ` (a member's share covers it ${n1(share / jc)} times).`))));
+
+  // ---- 5. keeping it fair
+  const tips = el("div", { class: "card" }, el("h2", {}, "Keeping it fair in practice"), el("ul", { class: "tight" },
+    hasP ? el("li", {}, el("b", {}, "Per-person GPU caps. "), "Today one member may hold every GPU of a project account. ARCH or a lab coordinator can cap each member's GPUs inside an account (",
+      el("code", {}, "sacctmgr modify user where account=<project> set GrpTRES=gres/gpu=<n>"), ") — nobody is a coordinator on ", el("code", {}, L.pi), " today.")
+      : el("li", {}, el("b", {}, "Per-person caps. "), "Slurm can give each member their own monthly cap inside the lab account (a GrpTRESMins billing limit on each user's association). That has to be set by ARCH or a lab coordinator — nobody is a coordinator on ", el("code", {}, L.pi), " today."),
+    hasP ? el("li", {}, el("b", {}, "Long jobs on project accounts, tests on main. "), "Only the main account has a monthly allowance; when it goes over, Slurm ends its running jobs. Project accounts have no hour limit.")
+      : el("li", {}, el("b", {}, "Ask for a project allocation. "), "ARCH's guide says a PI's default account has \"a small compute allocation for testing purposes\"; real allocations are requested per project at ", el("code", {}, "portal.arch.jhu.edu"), ". Project accounts on this cluster have no practical monthly limit but at most 16 GPUs at once."),
+    hasP ? el("li", {}, el("b", {}, "Watch who holds the GPUs, not the credits. "), "The lab's limit is GPUs at once, so one person's 8-GPU interactive session blocks everyone else's jobs for as long as it is open.")
+      : el("li", {}, el("b", {}, "Never let the main account pass 100% of its allowance. "), "Going over ends everyone's running jobs on it at once. Check ", el("code", {}, "pibudget"), " before long jobs, and prefer short, checkpointed jobs late in the month."),
+    hasP ? el("li", {}, el("b", {}, "Use the fastest GPU that fits. "), "Under a GPUs-at-once cap a faster GPU gets more done in the same slot; check the cost only if billing is switched on.")
+      : el("li", {}, el("b", {}, "Use the cheapest GPU that fits. "), "With the default speeds an L40S does a unit of work for fewer credits than an A100, and an A100 for fewer than an H100.")));
+  return [inputs, el("p", { class: "sub", style: "margin:-6px 0 14px" }, sc.desc), head, costCard(L, N, sc),
+    monthCard(L, price), el("div", { class: "grid2" }, mixCard, jobCard), fair, gpuCard, tips];
+
+  function lpMix() {
+    // maximise total work W subject to cost <= budget; a share `big` of the work must run on A100/H100
+    const cpw = Object.fromEntries(PLAN_TYPES.map(([t]) => [t, price[t] / P.speed[t]]));
+    const bigT = cpw.a100 <= cpw.h100 ? "a100" : "h100";
+    const smallT = ["a100", "h100", "l40s"].reduce((a, t) => cpw[t] < cpw[a] ? t : a, "a100");
+    const fb = P.big / 100;
+    const costPerWork = fb * cpw[bigT] + (1 - fb) * cpw[smallT];
+    const W = share / costPerWork;
+    const credits = { a100: 0, h100: 0, l40s: 0 };
+    credits[bigT] += W * fb * cpw[bigT]; credits[smallT] += W * (1 - fb) * cpw[smallT];
+    const mix = Object.fromEntries(PLAN_TYPES.map(([t]) => [t, Math.round(100 * credits[t] / share)]));
+    const label = { a100: "A100", h100: "H100", l40s: "L40S" };
+    const text = `put the ${P.big}% of work that needs more memory on ${label[bigT]} and the rest on ${label[smallT]}. ` +
+      `That gives each member about ${n1(W)} A100-hours of work a month (${PLAN_TYPES.filter(([t]) => credits[t] > 0).map(([t, l]) => `${n1(credits[t] / price[t])} h on ${l}`).join(" + ")}), ` +
+      `versus ${n1(share / cpw.h100)} if everything ran on H100. Use the “Most compute (LP)” preset above to apply it.`;
+    return { mix, text };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Project allocations: what each PI's accounts really allow per month
+// ---------------------------------------------------------------------------
+const TYPE_LABEL = { b300: "B300", b200: "B200", h200: "H200", h100: "H100", a100: "A100", rtx_pro_6000: "RTX PRO 6000", l40s: "L40S", "2g.20gb": "A100 MIG" };
+const tl = g => TYPE_LABEL[g] || String(g || "?").toUpperCase();
+function typesText(types, max = 3) {
+  const e = Object.entries(types || {}).filter(([, h]) => h >= 0.5).sort((a, b) => b[1] - a[1]);
+  if (!e.length) return "–";
+  return e.slice(0, max).map(([g, h]) => `${tl(g)} ${n0(h)}`).join(" · ") + (e.length > max ? ` · +${e.length - max} more` : "");
+}
+const usd0 = v => v == null || isNaN(v) ? "–" : "$" + n0(v);
+
+function vAlloc() {
+  const A = S.alloc, ui = S.ui;
+  if (!A || !A.pis) return el("p", { class: "muted" }, "The allocation analysis is computed a minute after the dashboard starts.");
+  const H = A.hours_month, days = H / 24, ty = A.typical_project, g = A.groups, B = A.budgets || {}, MD = A.main_dist || {};
+  const me = myLab();
+  const jhu = A.pis.filter(p => p.top === "jhu");
+  const mine = A.pis.find(p => p.pi === me);
+  const pace = p => A.days_since_change ? p.used_since / A.days_since_change * days : p.used30;
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const mts = (B.months_to_spend || {})["16"] || {};
+  const stdA100 = MD.standard ? MD.standard / A.prices.a100 : 324, stdH100 = MD.standard ? MD.standard / A.prices.h100 : 96;
+
+  const intro = el("div", { class: "card" }, el("h2", {}, "What a project account really gives a lab"),
+    el("div", { class: "tiles" },
+      tile("Standard main allowance", `${n0(stdA100)} A100-h`, `a month for the whole lab ($${n0((MD.standard || 0) / 60000)}; or ${n0(stdH100)} H100-h). ${MD.n_standard || "?"} of ${MD.n || "?"} JHU labs have exactly this; ${MD.n_less || 0} less, ${MD.n_more || 0} more — see Main-account allowances.` +
+        (mine && mine.main_credits != null && mine.main_credits !== MD.standard ? ` ${me}: ${n0(mine.main_a100h)} A100-h.` : "")),
+      tile("Each project account", "16 GPUs at once", `no monthly hour limit (32 or 64 GPUs for a few). Kept busy every hour, that is at most 16 × ${H} h = ${n0(16 * H)} GPU-hours this month.`),
+      tile("Its credit budget never runs out", B.max_pct != null ? pct(B.max_pct, 1) : "–", `the most any of the ${B.n || "?"} standard project accounts has used of its ${n1((B.standard || 6e9) / 1e9)}-billion-credit budget this month` +
+        (mts.h100 ? `. With all 16 GPUs busy non-stop it would last ${n1(mts.a100)} months on A100s, ${n1(mts.h100)} on H100s.` : "")),
+      tile("What an active project really uses", `${n0(ty.median)} GPU-h`, `per month (median of ${ty.n_active} active project accounts since ${A.change_date || "30 days ago"}; busiest ${n0(ty.max)}) — the queue, not the cap, decides`),
+      tile("What sbalance shows", "100,000,000", "\"GPU-hours allocated\" per project — a placeholder that can never be reached"),
+      A.canon_projects ? tile("Typical project, if billed", `$${n0(A.canon_projects.median_usd)}/mo`, "billable to the PI's cost center ($0 today), at the prices implied by ARCH's billing weights") : null),
+    el("p", { class: "explain" }, el("b", {}, "So yes: a project account is limited by how many GPUs it may hold at once, not by hours. "),
+      `Its most possible GPU-hours in a month = GPUs at once × hours in the month (16 × ${H} = ${n0(16 * H)} now). In practice it gets less: the caps add up to ${n1(A.caps_total / A.jhu_gpus)}× the JHU GPUs, so queue priority decides who runs. ` +
+      `A lab with only a main account is limited by its credit allowance instead (the standard one ≈ ${n0(stdA100)} A100-hours a month, and allowances vary a lot between labs).`),
+    (B.exceptions || []).length ? el("p", { class: "sub" }, "Exceptions — project accounts with a smaller budget, which can run out: " +
+      B.exceptions.map(x => `${x.acct} (${n1(x.budget / 1e6)}M credits, ${pct(x.pct, 0)} used)`).join(", ") + ".") : null,
+    det("How long the budget would last at full speed", sortTable([{ key: "c", label: "GPUs at once" },
+      { key: "a100", label: "All on A100 (months)", num: true, render: r => n1(r.a100) }, { key: "h100", label: "All on H100", num: true, render: r => n1(r.h100) },
+      { key: "h200", label: "All on H200", num: true, render: r => n1(r.h200) }],
+      Object.entries(B.months_to_spend || {}).map(([c, v]) => ({ c: +c, ...v })), { id: "budget-months", sortKey: "c", desc: false }),
+      el("p", { class: "sub" }, "Every GPU busy every hour of every day. The budget also refills: used credits halve every 30 days and reset monthly.")));
+
+  const facts = el("div", { class: "tiles" },
+    el("div", { class: "tile hero" }, el("div", { class: "label" }, `GPU-hours used by labs with project/condo accounts since ${A.change_date || "30 days ago"}`),
+      el("div", { class: "value", style: "font-size:44px" }, pct(g.with.since.share, 0)),
+      el("div", { class: "note" }, `${g.with.pis} labs with project/condo accounts vs ${g.without.pis} labs with only a main account (${pct(g.without.since.share, 0)}); last 30 days: ${pct(g.with.share, 0)} vs ${pct(g.without.share, 0)}`)),
+    tile("GPUs promised at once vs GPUs that exist", `${n0(A.caps_total)} vs ${n0(A.jhu_gpus)}`, `the caps add up to ${n1(A.caps_total / A.jhu_gpus)}× the JHU GPUs, so a cap is not a guarantee — queue priority decides`),
+    mine ? tile(`${me}: GPUs at once`, mine.gpus_at_once ? `${mine.gpus_at_once}` : "main only", `${mine.n_proj} project + ${mine.n_condo} condo accounts · ${pct(mine.dept_entitlement, 3)} of ${mine.dept}'s queue-priority weight`) : null);
+
+  // GPUs at once per lab (top labs + this lab)
+  let top = jhu.slice().sort((a, b) => b.ceiling_a100 - a.ceiling_a100).slice(0, 20);
+  if (mine && !top.includes(mine)) top.push(mine);
+  const maxC = Math.max(1, ...top.map(p => p.ceiling_a100));
+  const chart = el("div", { class: "card" }, el("h2", {}, "Most GPU-hours a lab could run this month"),
+    el("p", { class: "sub" }, `Project and condo accounts: GPUs at once × ${H} hours (no other limit). Main allowance: its credits as A100-hours. The right column is what the lab actually uses (GPU-hours per month at its pace since ${A.change_date || "the last 30 days"}).`),
+    legend([[tierVar("high"), "Main allowance"], [tierVar("mid"), "Project accounts"], [tierVar("low"), "Condo accounts"]]));
+  for (const p of top) {
+    chart.append(el("div", { class: "brow", style: p.pi === me ? "font-weight:600" : "" },
+      el("div", { class: "name" }, p.pi + (p.pi === me ? " (your lab)" : ""), el("small", {}, `${p.dept} · ${p.gpus_at_once || 0} GPUs at once · ${p.n_proj} project · ${p.n_condo} condo`)),
+      hbar([{ v: p.main_a100h || 0, color: tierVar("high"), label: "Main allowance (A100-h)" }, { v: p.proj_ceiling, color: tierVar("mid"), label: "Project accounts (GPU-h)" },
+        { v: p.condo_ceiling, color: tierVar("low"), label: "Condo accounts (GPU-h)" }], maxC, p.pi),
+      el("div", { class: "val" }, `${n0(p.ceiling_a100)} max · ${n0(pace(p))} used`)));
+  }
+
+  // full table
+  const search = el("input", { type: "search", "data-k": "allocSearch", placeholder: "Search lab or department…", value: ui.allocSearch || "", "aria-label": "Search labs", oninput: e => { ui.allocSearch = e.target.value; redraw(); } });
+  const onlyP = el("input", { type: "checkbox", checked: !!ui.allocOnlyP, onchange: e => { ui.allocOnlyP = e.target.checked; redraw(); } });
+  const holder = el("div");
+  function redraw() {
+    const q = (ui.allocSearch || "").toLowerCase();
+    const rows = A.pis.filter(p => (!ui.allocOnlyP || p.n_proj + p.n_condo) && (!q || (p.pi + " " + p.dept + " " + p.school).toLowerCase().includes(q)))
+      .map(p => ({ ...p, pace: pace(p), per_person: p.members ? p.ceiling_a100 / p.members : null }));
+    holder.replaceChildren(sortTable([
+      { key: "pi", label: "Lab", render: r => r.pi === me ? el("b", {}, r.pi) : r.pi }, { key: "dept", label: "Dept" },
+      { key: "main_a100h", label: "Main A100-h", num: true, render: r => r.main_a100h == null ? "no limit" : n0(r.main_a100h) },
+      { key: "n_proj", label: "Projects", num: true }, { key: "n_condo", label: "Condos", num: true },
+      { key: "gpus_at_once", label: "GPUs at once", num: true, render: r => r.gpus_at_once || (r.n_proj + r.n_condo ? "no cap" : "–") },
+      { key: "ceiling_a100", label: "Most GPU-h / month", num: true, render: r => r.unbounded ? n0(r.ceiling_a100) + "+" : n0(r.ceiling_a100) },
+      { key: "dept_entitlement", label: "Priority weight", num: true, render: r => pct(r.dept_entitlement, r.dept_entitlement < 1 ? 3 : 1) },
+      { key: "fs_median", label: "Fairshare", num: true, render: r => r.fs_median == null ? "–" : r.fs_median.toFixed(3) },
+      { key: "used30", label: "Used 30 d", num: true, render: r => n0(r.used30) },
+      { key: "pace", label: "Pace /mo", num: true, render: r => n0(r.pace) },
+      { key: "members", label: "People", num: true },
+      { key: "per_person", label: "Per person", num: true, render: r => n0(r.per_person) },
+    ], rows, { id: "alloc-table", sortKey: "ceiling_a100", limit: 40, onRow: allocDetail, isOpen: r => (S.ui.allocOpen || {})[r.pi] }));
+  }
+  redraw();
+  const table = el("div", { class: "card" }, el("h2", {}, "Every lab"),
+    el("p", { class: "sub" }, `Main A100-h = monthly main allowance spent on A100s. Most GPU-h / month = main allowance + GPUs at once × ${H} h. Priority weight = the lab's share of its department's fairshare shares (main account 180,000; each project/condo account 100,000,000). Fairshare = median score of the lab's people (0–1, higher starts sooner). Click a row for its accounts.`),
+    el("div", { class: "filters" }, search, el("label", {}, onlyP, "Only labs with project/condo accounts")), holder);
+
+  // priority, in plain words
+  const pr = A.priority.filter(d => d.n_main >= 3 && d.n_proj >= 3).sort((a, b) => (b.proj_median / b.main_median) - (a.proj_median / a.main_median));
+  const ppd = A.points_per_day || 5000 / 7;
+  const WP = (A.waiting_priority || []).filter(d => d.dept !== "(all)" && d.n_main && d.n_proj);
+  // public example department: where project accounts are most common
+  const bigDept = (Object.entries(jhu.filter(p => p.n_proj + p.n_condo > 0).reduce((a, p) => { a[p.dept] = (a[p.dept] || 0) + 1; return a; }, {})).sort((a, b) => b[1] - a[1])[0] || [])[0];
+  const dname = mine ? mine.dept : bigDept || "csci", dsh = (A.dept_shares || {})[dname] || 0;
+  const wMe = WP.find(d => d.dept === dname);
+  const prio = el("div", { class: "card" }, el("h2", {}, "Who goes first in the queue — and do project accounts help?"),
+    el("ul", { class: "tight explain" },
+      el("li", {}, el("b", {}, "No account type gets a built-in bonus. "), "On Skipjack the QOS, partition and account weights are all 0. A waiting job's priority is just fairshare (up to 20,000 points) + time spent waiting (up to 5,000, about ", n0(ppd), " a day) + job size (up to 5,000)."),
+      el("li", {}, el("b", {}, "Fairshare is a bracket. "), "Schools are ranked first, then departments inside a school, then accounts inside a department, then people inside an account — each by how much it used recently compared with its weight (its shares). Everyone in a higher-ranked group goes ahead of everyone in a lower one."),
+      el("li", {}, el("b", {}, "Inside a department, project accounts weigh 556× more. "), "A main account has 180,000 shares; every project or condo account 100,000,000. So a project account can use 556 times as much as a main account before it looks equally \"used\"."),
+      el("li", {}, el("b", {}, "Yes, the number of project accounts matters. "), "Each one is a separate entry with its own 100,000,000 shares, and use is counted per account. Spreading the same work over four accounts makes each look a quarter as used, so all of them stay near the top." +
+        (dsh ? ` In ${dname}, one project account holds ${pct(100 * A.project_shares / dsh, 1)} of the department's weight, a lab with four holds ${pct(100 * 4 * A.project_shares / dsh, 1)}, and a main account ${pct(100 * A.main_shares / dsh, 3)}.` : "")),
+      el("li", {}, el("b", {}, "But school and department come first. "), "A main account in a quiet department ranks far above any account in a busy one: Engineering has used most of JHU's recent GPU time, so its accounts rank behind the other schools' whatever their type.")),
+    wMe ? el("p", { class: "callout" }, el("b", {}, `Right now in ${dname}: `), `the typical waiting job on a project account has ${n0(wMe.proj_median)} fairshare points, on a main account ${n0(wMe.main_median)} — ` +
+      (wMe.proj_median > wMe.main_median ? `a head start worth about ${n1((wMe.proj_median - wMe.main_median) / ppd)} days of waiting.` : "no head start at the moment.")) : null,
+    WP.length ? det("Jobs waiting right now, by department", sortTable([{ key: "dept", label: "Department" },
+      { key: "main_median", label: "Typical points — main accounts", num: true, render: r => `${n0(r.main_median)} (${r.n_main})` },
+      { key: "proj_median", label: "Typical points — project accounts", num: true, render: r => `${n0(r.proj_median)} (${r.n_proj})` },
+      { key: "gap", label: "Project head start ≈ days of waiting", num: true, sort: r => r.proj_median - r.main_median, render: r => n1((r.proj_median - r.main_median) / ppd) }],
+      WP, { id: "prio-wait", sortKey: "gap" }), el("p", { class: "sub" }, "Median fairshare points of jobs waiting now (in brackets: people waiting; one per person and account).")) : null,
+    det("Everyone with access, not just waiting jobs", sortTable([{ key: "dept", label: "Department" },
+      { key: "main_median", label: "Typical score — main accounts", num: true, render: r => r.main_median.toFixed(3) },
+      { key: "proj_median", label: "Typical score — project/condo accounts", num: true, render: r => r.proj_median.toFixed(3) },
+      { key: "ratio", label: "Project accounts ahead by", num: true, sort: r => r.proj_median / r.main_median, render: r => `${n1(r.proj_median / r.main_median)}×` },
+      { key: "gap", label: "≈ days of waiting", num: true, sort: r => r.proj_median - r.main_median, render: r => n1((r.proj_median - r.main_median) * 20000 / ppd) },
+      { key: "n_main", label: "People (main / project)", num: true, render: r => `${r.n_main} / ${r.n_proj}` }], pr, { id: "alloc-prio", sortKey: "ratio" }),
+      el("p", { class: "sub" }, "Fairshare score from 0 to 1 (higher starts sooner), median per department, for departments with at least 3 people of each kind.")));
+
+  // what if: more project accounts for this lab
+  ui.whatIf = ui.whatIf ?? 2;
+  // own lab privately; on the public site a lab with only a main account in the department above
+  const n = ui.whatIf, deptTot = (A.dept_shares || {})[mine ? mine.dept : dname] || 0;
+  const myShares = mine ? mine.shares : A.main_shares || 180000;
+  const entNow = mine ? mine.dept_entitlement : deptTot ? 100 * myShares / (deptTot + myShares) : 0, entNew = deptTot ? 100 * (myShares + n * A.project_shares) / (deptTot + n * A.project_shares) : 0;
+  const ceilNew = (mine ? mine.ceiling_a100 : 324) + n * 16 * H, typNew = (mine ? pace(mine) : 0) + n * (ty.median || 0);
+  const what = el("div", { class: "card" }, el("h2", {}, `What would change if ${mine ? me : `a ${dname} lab with only a main account`} had more project accounts?`),
+    el("div", { class: "filters" }, el("span", { class: "muted" }, "Extra project accounts:"),
+      el("div", { class: "seg" }, [0, 1, 2, 3, 4].map(k => el("button", { "aria-pressed": String(k === n), onclick: () => { ui.whatIf = k; render(); } }, String(k))))),
+    el("div", { class: "tiles" },
+      tile("GPUs at once", `${(mine ? mine.gpus_at_once : 0) + 16 * n}`, `now ${mine ? mine.gpus_at_once : 0}; no hour limit on the project accounts`),
+      tile("Realistic use", `${n0(typNew)} GPU-h`, `a month, if each new account is as busy as a typical active one (${n0(ty.median)} GPU-h/month)`),
+      tile(`Priority weight in ${mine ? mine.dept : dname}`, pct(entNew, entNew < 1 ? 3 : 1), `now ${pct(entNow, 3)} — every other lab's weight shrinks accordingly`),
+      tile("GPUs promised vs GPUs that exist", `${n0(A.caps_total + 16 * n)} vs ${n0(A.jhu_gpus)}`, "more promises, the same hardware")),
+    el("ul", { class: "tight" },
+      el("li", {}, el("b", {}, mine ? "Your lab would move up: " : "The lab would move up: "), "new project accounts start unused, so their jobs rank near the top of the department, and several accounts let the lab spread its use."),
+      el("li", {}, el("b", {}, "It is zero-sum: "), `${n0(A.jhu_gpus)} JHU GPUs are already promised ${n1(A.caps_total / A.jhu_gpus)}× over; every GPU-hour gained comes out of someone else's queue, first from main-only labs.`),
+      el("li", {}, el("b", {}, "What would fix it: "), "shares and caps proportional to the approved allocation (not the number of accounts), and per-person limits inside a lab.")));
+
+  // one person's share of each lab (simplified)
+  ui.concWin = ui.concWin || "d30";
+  const C = A.concentration[ui.concWin];
+  const conc = el("div", { class: "card" }, el("h2", {}, "Does one person use most of a lab's GPU time?"),
+    el("div", { class: "filters" }, el("div", { class: "seg" }, [["d30", "Last 30 days"], ["d7", "Last 7 days"]].map(([k, l]) =>
+      el("button", { "aria-pressed": String(k === ui.concWin), onclick: () => { ui.concWin = k; render(); } }, l)))),
+    el("p", {}, el("b", { style: "font-size:20px" }, `In ${C.over50} of ${C.n} labs, one person used more than half of the lab's GPU-hours`),
+      el("span", { class: "muted" }, ` (more than three quarters in ${C.over75}). Labs where at least 3 people used GPUs; people are not named.`)),
+    legend([["var(--s1)", "The lab's heaviest user"], ["var(--cap)", "Everyone else in the lab"]]));
+  for (const r of C.labs.slice(0, 15)) {
+    conc.append(el("div", { class: "brow", style: r.pi === me ? "font-weight:600" : "" },
+      el("div", { class: "name" }, r.pi + (r.pi === me ? " (your lab)" : ""), el("small", {}, `${r.users} people · ${n0(r.total)} GPU-h`)),
+      hbar([{ v: r.top_share, color: "var(--s1)", label: "Heaviest user (%)" }, { v: 100 - r.top_share, color: "var(--cap)", label: `Other ${r.users - 1} people (%)` }], 100, r.pi),
+      el("div", { class: "val" }, `one person: ${pct(r.top_share, 0)}`)));
+  }
+  conc.append(det("Show all labs as a table", sortTable([{ key: "pi", label: "Lab" }, { key: "users", label: "People", num: true },
+    { key: "top_share", label: "Heaviest user's share", num: true, render: r => pct(r.top_share, 0) },
+    { key: "top", label: "Heaviest user (GPU-h)", num: true, render: r => n0(r.top) }, { key: "total", label: "Lab total (GPU-h)", num: true, render: r => n0(r.total) }],
+    C.labs, { id: "conc-" + ui.concWin, sortKey: "top_share" })),
+    el("p", { class: "callout ok" }, el("b", {}, "Why per-person limits: "), "a lab's limit protects other labs, but nothing protects people inside a lab from each other — main accounts have no per-person limit, and on project accounts the per-person cap equals the account's cap. A default per-person limit the PI can raise keeps big runs possible and leaves room for everyone."));
+
+  return [intro, billsCard(), perUserCard("alloc"), facts, chart, prio, what, conc, table];
+}
+
+// Expected GPU cost this month for each lab, from its own recent usage and GPU mix.
+// Prices: A100 is the base; every other GPU type is a multiple of it (from ARCH's billing weights).
+function billsCard() {
+  const A = S.alloc, ui = S.ui, LU = A.lab_usage, R = A.usd_gpu_hour || {};
+  if (!LU || !LU.windows || !R.a100) return null;
+  const base = R.a100, dim = A.hours_month / 24;
+  const bases = ["d30", "d7", "prev"].filter(k => LU.windows[k]);
+  ui.billWin = bases.includes(ui.billWin) ? ui.billWin : bases[0];
+  const W = LU.windows[ui.billWin], M = LU.windows.month, P = LU.windows.prev, me = myLab();
+  const exp = x => x ? x.usd / W.days * dim : 0;               // this window's daily rate x days in this month
+  const names = Object.keys(W.labs).concat(M ? Object.keys(M.labs) : []);
+  const rows = [...new Set(names)].map(pi => {
+    const x = W.labs[pi], m = M && M.labs[pi], p = P && P.labs[pi];
+    return { pi, dept: (x || m || p || {}).dept, gpu_h: x ? x.gpu_h : 0, types: x ? x.types : {}, people: x ? x.people : 0,
+      expected: exp(x), billable: x ? x.usd_billable / W.days * dim : 0, so_far: m ? m.usd : 0, last: p ? p.usd : null };
+  });
+  const q = (ui.billSearch || "").toLowerCase();
+  const shown = rows.filter(r => !q || (r.pi + " " + r.dept).toLowerCase().includes(q));
+  const tot = rows.reduce((a, r) => a + r.expected, 0), totB = rows.reduce((a, r) => a + r.billable, 0);
+  const mine = rows.find(r => r.pi === me);
+  const mult = Object.entries(R).sort((a, b) => b[1] - a[1]);
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const sum = x => Object.entries(x.types || {}).filter(([, h]) => h >= 1).sort((a, b) => b[1] * (R[b[0]] || 0) - a[1] * (R[a[0]] || 0))
+    .slice(0, 4).map(([g, h]) => `${tl(g)} ${n0(h)} h × $${(R[g] || 0).toFixed(3)}`).join(" + ");
+  const xw = W.labs[me];
+  return el("div", { class: "card" }, el("h2", {}, "Expected GPU cost this month, from each lab's own usage"),
+    el("p", { class: "sub" }, `Price per GPU-hour, implied by ARCH's billing weights: A100 $${base.toFixed(3)} is the base, and the others are multiples of it — ` +
+      mult.map(([g, r]) => `${tl(g)} ${n1(r / base)}×`).join(", ") + ". Nothing is charged today; under ARCH's configuration main-account jobs stay free and project/condo jobs are billable to the PI's cost center."),
+    el("div", { class: "filters" }, el("span", { class: "muted" }, "Based on each lab's"),
+      el("div", { class: "seg" }, bases.map(k => el("button", { "aria-pressed": String(k === ui.billWin), onclick: () => { ui.billWin = k; render(); } }, LU.windows[k].label.replace(/^Last/, "last")))),
+      el("input", { type: "search", "data-k": "billSearch", placeholder: "Search lab…", value: ui.billSearch || "", "aria-label": "Search labs", oninput: e => { ui.billSearch = e.target.value; render(); } })),
+    mine ? el("div", { class: "tiles" },
+      el("div", { class: "tile hero" }, el("div", { class: "label" }, `${me}: expected this month`), el("div", { class: "value", style: "font-size:40px" }, usd0(mine.expected)),
+        el("div", { class: "note" }, xw ? `${sum(xw)} in ${W.label.toLowerCase()}, scaled to ${dim} days` : "no GPU jobs in this period")),
+      tile("Of which billable", usd0(mine.billable), mine.billable ? "on project/condo accounts" : "all on the free main account today"),
+      tile("So far this month", usd0(mine.so_far), M ? `${n1(M.days)} days since ${M.start}` : ""),
+      mine.last != null ? tile(`Actual, ${P.label}`, usd0(mine.last), "same prices, applied to last month's jobs") : null) : null,
+    el("p", { class: "sub" }, `All labs together: about $${n0(tot)} expected this month, $${n0(totB)} of it on billable accounts. GPU jobs only (CPU-only work adds little).`),
+    sortTable([
+      { key: "pi", label: "Lab", render: r => r.pi === me ? el("b", {}, r.pi) : r.pi }, { key: "dept", label: "Dept" },
+      { key: "gpu_h", label: `GPU-hours (${W.label.toLowerCase()})`, num: true, render: r => n0(r.gpu_h) },
+      { key: "types", label: "GPU mix (GPU-h)", nosort: true, render: r => typesText(r.types) },
+      { key: "expected", label: "Expected this month", num: true, render: r => r.expected >= 1 ? usd0(r.expected) : "–" },
+      { key: "billable", label: "Billable part", num: true, render: r => r.billable >= 1 ? usd0(r.billable) : "–" },
+      { key: "so_far", label: "So far this month", num: true, render: r => r.so_far >= 1 ? usd0(r.so_far) : "–" },
+      P ? { key: "last", label: `Actual, ${P.label}`, num: true, render: r => r.last >= 1 ? usd0(r.last) : "–" } : null,
+      { key: "people", label: "People", num: true }].filter(Boolean), shown, { id: "bills2", sortKey: "expected", limit: 25 }),
+    det("Prices per GPU-hour", sortTable([{ key: "g", label: "GPU", render: r => tl(r.g) }, { key: "m", label: "× A100", num: true, render: r => n1(r.m) + "×" },
+      { key: "r", label: "$ per GPU-hour", num: true, render: r => "$" + r.r.toFixed(3) }, { key: "mo", label: "One GPU busy all month", num: true, render: r => usd0(r.r * A.hours_month) }],
+      mult.map(([g, r]) => ({ g, r, m: r / base, mo: r * A.hours_month })), { id: "price-mult", sortKey: "r" })));
+}
+function allocDetail(p, tr, ncols, reopen) {
+  S.ui.allocOpen = S.ui.allocOpen || {};
+  const nx = tr.nextSibling;
+  if (!reopen && nx && nx.classList && nx.classList.contains("detail")) { nx.remove(); S.ui.allocOpen[p.pi] = false; return; }
+  S.ui.allocOpen[p.pi] = true;
+  const d = el("td", { colspan: ncols }, el("h3", {}, `${p.pi} — accounts`),
+    p.accounts.length ? sortTable([{ key: "acct", label: "Account" }, { key: "kind", label: "Type" }, { key: "qos", label: "QOS" },
+      { key: "cap", label: "GPUs at once (account / person)", num: true, render: r => r.cap ? `${r.cap} / ${r.cap_user ?? r.cap}` : "no cap" },
+      { key: "ceiling", label: "Ceiling (GPU-h/mo)", num: true, render: r => r.ceiling == null ? "no limit" : n0(r.ceiling) },
+      { key: "shares", label: "Shares", num: true, render: r => n0(r.shares) },
+      { key: "used30", label: "Used 30 d (GPU-h)", num: true, render: r => n0(r.used30) }, { key: "users", label: "People", num: true }],
+      p.accounts, { id: "alloc-acct", sortKey: "ceiling" }) : el("p", { class: "muted" }, "Only the main account."));
+  tr.after(el("tr", { class: "detail" }, d));
+}
+
+// Allocation scenarios: this lab today, the comparison labs set on the server ("plan_compare"; main allowance
+// AND their project/condo accounts), or a custom main allowance + 0–4 standard (16-GPU) project accounts.
+function planScenarios(L, P) {
+  const A = S.alloc, find = pi => A && A.pis ? A.pis.find(p => p.pi === pi) : null;
+  const accts = p => (p ? p.accounts : []).filter(r => r.cap).map(r => ({ acct: r.acct, kind: r.kind, cap: r.cap, used30: r.used30 }));
+  const describe = (main, ac) => {
+    const pr = ac.filter(a => a.kind === "project"), co = ac.filter(a => a.kind === "condo");
+    return `main allowance ${n1(main / 1e6)}M credits ($${n0(main / 60000)}) + ${pr.length} project account(s)` +
+      (pr.length ? ` (${pr.map(a => a.cap).join(" + ")} GPUs at once)` : "") + (co.length ? ` + ${co.length} condo (${co.map(a => a.cap).join(" + ")} GPUs)` : "");
+  };
+  const me = find(L.pi);
+  const out = [{ k: "current", label: `${L.pi} today`, v: L.allowance || 0, accounts: accts(me) }];
+  for (const x of (L.presets || []).map(p => p.pi)) {
+    const p = find(x);
+    if (p && x !== L.pi) out.push({ k: x, label: `Like ${x}`, v: p.main_credits || 0, accounts: accts(p) });
+  }
+  out.push({ k: "custom", label: "Custom", v: P.custom * 1e6, accounts: Array.from({ length: P.nproj ?? 1 }, (_, i) => ({ acct: `project ${i + 1}`, kind: "project", cap: 16 })) });
+  out.forEach(x => { x.desc = `${x.label}: ${describe(x.v, x.accounts)}.`; });
+  return out;
+}
+
+// What project accounts would cost the PI if ARCH switched billing on
+function costCard(L, N, sc) {
+  const A = S.alloc;
+  if (!A || !A.canon_projects || !A.usd_gpu_hour) return null;
+  const P = planState(), H = A.hours_month, cp = A.canon_projects, usd = A.usd_gpu_hour, b = A.billing || {};
+  P.rateMult = P.rateMult ?? 1;
+  P.perCap = P.perCap ?? 4;
+  const m = P.rateMult;
+  const set = fn => { fn(); savePlan(); render(); };
+  const ac = sc.accounts.length ? sc.accounts : [{ acct: "one standard project", kind: "project", cap: 16 }];
+  const capSum = ac.reduce((x, a) => x + a.cap, 0);
+  const W30 = L.month && L.month.windows && L.month.windows.d30;
+  const labUsd30 = W30 ? W30.total / 60000 : null;      // credits at today's prices -> $ (billing unit = 0.1 cent per hour)
+  const labGpuH30 = W30 ? W30.gpu_hours : null;
+  const labCeilUsd = labGpuH30 ? capSum * H * (labUsd30 / labGpuH30) : null;
+  const rows = [
+    { what: `Typical: each account as busy as the median active project (${cp.n} on the cluster)`, usd: ac.reduce((x, a) => x + (cp.median_usd_per16 || 0) * a.cap / 16, 0) },
+    { what: "Busy: as busy as the top quarter of active projects", usd: ac.reduce((x, a) => x + (cp.p75_usd_per16 || 0) * a.cap / 16, 0) },
+    labUsd30 != null ? { what: `Your lab's own last 30 days, had it all run on these project accounts (${n0(labGpuH30)} GPU-h)`, usd: Math.min(labUsd30, labCeilUsd || labUsd30) } : null,
+    { what: `Worst case: all ${capSum} GPUs busy every hour on A100s`, usd: capSum * H * usd.a100 },
+    { what: `Worst case: all ${capSum} GPUs busy every hour on H100s`, usd: capSum * H * usd.h100 },
+  ].filter(Boolean).map(r => ({ ...r, usd: r.usd * m }));
+  const own = rows.find(r => r.what.startsWith("Your lab"));
+  const mult = [[0, "Today: $0"], [1, "ARCH's implied prices"], [2, "2× those"], [3, "3× those"]];
+  return el("div", { class: "card" }, el("h2", {}, `What project accounts would cost the PI — ${sc.label}`),
+    el("div", { class: "explain" },
+      el("p", {}, "Main-account jobs are free (QOS ", el("code", {}, (b.free_qos || ["scavenger"]).join(", ")), "). Project accounts are billable to the cost center the PI attaches to the project; every rate is ",
+        el("b", {}, b.rates_all_zero ? "$0.00 today" : "set by ARCH"), ", and ARCH has promised advance notice before that changes. The estimate uses the prices implied by the cluster's own billing weights (ARCH's billing code reads them as tenths of a cent per hour: A100 $",
+        (usd.a100 * m).toFixed(3), ", H100 $", (usd.h100 * m).toFixed(3), ", L40S $", (usd.l40s * m).toFixed(3), " per GPU-hour at the chosen level)."),
+      el("p", {}, `Covers: ${sc.desc.replace(/^[^:]*: /, "").replace(/\.$/, "")}${sc.accounts.length ? "" : " (no project accounts in this scenario, so one standard 16-GPU project is shown)"}.`)),
+    el("div", { class: "filters" }, el("span", { class: "muted" }, "Price level:"),
+      el("div", { class: "seg" }, mult.map(([k, l]) => el("button", { "aria-pressed": String(k === m), onclick: () => set(() => { P.rateMult = k; }) }, l))),
+      el("label", {}, el("input", { type: "number", min: 0, step: 0.1, value: m, style: "width:70px", "data-k": "rateMult", onchange: e => set(() => { P.rateMult = Math.max(0, +e.target.value || 0); }) }), "× ARCH's implied prices")),
+    el("div", { class: "tiles" },
+      el("div", { class: "tile hero" }, el("div", { class: "label" }, "Likely monthly bill (typical project use)"), el("div", { class: "value", style: "font-size:40px" }, `$${n0(rows[0].usd)}`),
+        el("div", { class: "note" }, `$${n0(rows[0].usd * 12)} a year · $${n0(rows[0].usd / N)} per member per month`)),
+      el("div", { class: "tile" }, el("div", { class: "label" }, "If used like your lab's last 30 days"), el("div", { class: "value" }, own ? `$${n0(own.usd)}` : "–"), el("div", { class: "note" }, "same GPUs and hours, priced today (capped by the project GPUs)")),
+      el("div", { class: "tile" }, el("div", { class: "label" }, "Hard ceiling (caps × hours)"), el("div", { class: "value" }, `$${n0(rows[rows.length - 1].usd)}`), el("div", { class: "note" }, `every one of the ${capSum} GPUs on H100 for all ${H} hours`)),
+      el("div", { class: "tile" }, el("div", { class: "label" }, `Most one person could spend (limit ${P.perCap} GPUs)`), el("div", { class: "value" }, `$${n0(P.perCap * H * usd.h100 * m)}`),
+        el("div", { class: "note" }, "per month on H100s with a per-person limit; without one, a single person can use the whole cap"))),
+    sortTable([{ key: "what", label: "Scenario", wrap: true }, { key: "usd", label: "$ per month", num: true, render: r => "$" + n0(r.usd) },
+      { key: "y", label: "$ per year", num: true, sort: r => r.usd, render: r => "$" + n0(r.usd * 12) },
+      { key: "pm", label: "$ per member per month", num: true, sort: r => r.usd, render: r => "$" + n0(r.usd / N) }], rows, { id: "plan-cost", sortKey: null }),
+    el("div", { class: "filters", style: "margin-top:10px" }, el("label", {}, "Per-person limit to test",
+      el("input", { type: "number", min: 1, max: 64, value: P.perCap, style: "width:60px", "data-k": "perCap", onchange: e => set(() => { P.perCap = Math.max(1, +e.target.value | 0); }) }), "GPUs at once")),
+    el("p", { class: "callout ok" }, el("b", {}, "Before attaching a cost center: "), `the cost is bounded by the project's GPUs-at-once cap, not by a budget — ${capSum} GPUs can run up to ${H} hours this month. ` +
+      "Ask ARCH for (1) the actual rates, (2) a monthly spending cap per project, and (3) per-person limits inside the project; and keep large interactive sessions on the free main account or short time limits. " +
+      (own ? `At the same price level your lab's own last 30 days would cost $${n0(own.usd)} a month — ${n1(own.usd / Math.max(rows[0].usd * 16 / capSum, 1))}× what one typical 16-GPU project account costs ($${n0(rows[0].usd * 16 / capSum)}).` : "")));
+}
+
+// Where this month's credits went: the main account against its allowance, project/condo accounts by GPU-hours
+function monthCard(L, price) {
+  const MW = L.month && L.month.windows;
+  if (!MW) return null;
+  const ui = S.ui, usd = (S.alloc && S.alloc.usd_gpu_hour) || {};
+  ui.monthWin = MW[ui.monthWin] ? ui.monthWin : L.month.default;
+  const M = MW[ui.monthWin];
+  const allow = M.allowance_window || M.allowance || L.allowance || 0, P = M.patterns, full = M.allowance || L.allowance || 0;
+  const hasP = Object.values(L.account_kinds || {}).some(k => k !== "main");
+  const BK = M.by_kind || { main: { credits: M.total, gpu_hours: M.gpu_hours } };
+  const mainC = (BK.main || {}).credits || 0;
+  const projK = ["project", "condo"].filter(k => BK[k]);
+  const projGH = projK.reduce((a, k) => a + BK[k].gpu_hours, 0), projC = projK.reduce((a, k) => a + BK[k].credits, 0);
+  const capAll = ((S.alloc && S.alloc.pis ? S.alloc.pis.find(p => p.pi === L.pi) : null) || {}).gpus_at_once || 0;
+  const who = u => u;
+  const card = el("div", { class: "card" },
+    el("h2", {}, `Where the lab's ${hasP ? "GPU time" : "credits"} went — ${M.label}`),
+    el("div", { class: "filters" }, el("div", { class: "seg" }, ["d7", "d30", "month", "prev"].filter(k => MW[k]).map(k =>
+      el("button", { "aria-pressed": String(k === ui.monthWin), onclick: () => { ui.monthWin = k; render(); } }, MW[k].label)))),
+    el("p", { class: "sub" }, "Private view (this dashboard only). " +
+      (hasP ? "Only the main account has a monthly allowance; the project/condo accounts are limited by GPUs at once, so their use is shown in GPU-hours. " : "") +
+      `Credits are counted at today's prices (GPU price × GPUs × minutes)${L.month.change_date ? `; jobs before ${L.month.change_date} were billed far less at the time, so this shows what the same work costs now` : ""}.`));
+  if (!M.total) { card.append(el("p", { class: "muted" }, "No jobs on this lab's accounts in this period.")); return card; }
+  const mainPerDay = mainC / Math.max(M.days, 1 / 24);
+  const daysLeft = full && mainPerDay ? full / mainPerDay : null;
+  const lasts = daysLeft == null ? "" : daysLeft > 31 ? " — at this pace it will not run out this month" : ` — at this pace a month's main allowance lasts about ${n1(daysLeft)} days`;
+  const top = M.members[0];
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+  const mainWord = "Main account";
+  card.append(el("div", { class: "tiles" },
+    M.calendar ? el("div", { class: "tile hero" }, el("div", { class: "label" }, `${mainWord}: used of the ${M.label.startsWith("This") ? "month's" : M.label} allowance`), el("div", { class: "value", style: "font-size:40px" }, pct(100 * mainC / Math.max(allow, 1), 0)),
+      el("div", { class: "note" }, `${n0(mainC)} of ${n0(allow)} credits in ${n1(M.days)} days` + (hasP ? "" : ` · ${n0(M.gpu_hours)} GPU-hours`) + lasts))
+    : el("div", { class: "tile hero" }, el("div", { class: "label" }, `${mainWord}: used vs. the allowance for ${n0(M.days)} days`), el("div", { class: "value", style: "font-size:40px" }, `${n1(mainC / Math.max(allow, 1))}×`),
+      el("div", { class: "note" }, `${n0(mainC)} credits` + (hasP ? "" : ` (${n0(M.gpu_hours)} GPU-hours)`) + ` vs ${n0(allow)} pro-rated` + lasts)),
+    hasP ? tile("On project/condo accounts", `${n0(projGH)} GPU-h`, `${pct(100 * projGH / Math.max(M.gpu_hours, 1), 0)} of the lab's GPU-hours · no hour limit · ${n0(projC)} credits' worth`) : null,
+    tile("Used by the top member", pct(top.pct, 0), M.members.length > 1 ? `the other ${M.members.length - 1} together: ${pct(100 - top.pct, 0)}` : "only one member ran jobs"),
+    tile("Spent in interactive sessions", pct(P.interactive_pct, 0), "srun / salloc shells and VS Code, rather than batch jobs"),
+    tile("Sessions holding 4+ GPUs", pct(P.big_pct, 0), `${P.big_sessions} session(s) — a whole node of GPUs at once`),
+    tile("Ran until their time limit", pct(P.ran_to_limit_pct, 0), "ended only because time ran out — often a window left open"),
+    tile("No activity recorded", pct(P.idle_pct, 0), `${P.idle_sessions} finished session(s) where Slurm recorded no work in the session's shell. Work over VS Code/ssh and GPU use are not recorded, so this can overcount — ask, don't assume`),
+    P.ended_at_cap_jobs ? tile("Jobs ended at the limit", n0(P.ended_at_cap_jobs), "stopped by Slurm when the main account went over its allowance") : null,
+    P.peak_gpus ? tile("Most GPUs held at once", `${P.peak_gpus} GPUs`, hasP
+      ? `${P.peak_proj_gpus || 0} of them on project/condo accounts` + (capAll ? `, whose cap is ${capAll}` : "")
+      : P.peak_rate_hour ? `at the busiest moment the lab was spending ${n0(P.peak_rate_hour)} credits an hour — the main account's monthly allowance would last ${n1(full / P.peak_rate_hour)} hours` : "") : null));
+
+  // burn curve: main-account credits against its allowance (the only account with one)
+  const box = el("div", { class: "chart" });
+  const ts = M.burn.map(b => b[0]);
+  const data = { ts, series: { used: M.burn.map(b => b.length > 3 ? b[3] : b[1]), allow: M.burn.map(b => b[2]) } };
+  const ser = [{ key: "allow", label: M.calendar ? "Main-account monthly allowance" : "Main-account allowance, pro-rated over the period", color: "var(--cap)", width: 1.5 },
+    { key: "used", label: "Main-account credits used (today's prices)", color: "var(--s1)" }];
+  card.append(el("h3", {}, `Main-account credits — ${M.label}`), legend(ser.map(x => [x.color, x.label, "line"])), box,
+    hasP ? el("p", { class: "sub" }, `Not on the chart: ${n0(projC)} credits' worth (${n0(projGH)} GPU-hours) on the project/condo accounts, which have no monthly allowance.`) : null);
+  requestAnimationFrame(() => lineChart(box, data, ser, Math.max(24, (ts[ts.length - 1] - ts[0]) / 3600)));
+
+  // member shares: top three + everyone else
+  const parts = M.members.slice(0, 3).map((m, i) => ({ v: m.credits, color: ["var(--tier-high)", "var(--tier-mid)", "var(--tier-low)"][i], label: who(m.user) }));
+  const rest = M.members.slice(3).reduce((a, m) => a + m.credits, 0);
+  if (rest > 0) parts.push({ v: rest, color: "var(--muted)", label: `Everyone else (${M.members.length - 3})` });
+  card.append(el("h3", {}, "Share of the period's credits (all accounts)"), legend(parts.map(x => [x.color, `${x.label} · ${pct(100 * x.v / M.total, 0)}`])),
+    hbar(parts, M.total, "Share of the period's credits"),
+    det("Members in this period", sortTable([{ key: "user", label: "Member", render: r => who(r.user) },
+      { key: "credits", label: "Credits (today's prices)", num: true, render: r => n0(r.credits) }, { key: "pct", label: "Share", num: true, render: r => pct(r.pct, 1) },
+      { key: "gpu_hours", label: "GPU-hours", num: true, render: r => n0(r.gpu_hours) }]
+      .concat(hasP ? [{ key: "proj_gpu_hours", label: "…on project/condo", num: true, render: r => n0(r.proj_gpu_hours || 0) },
+        { key: "main_credits", label: "Main-account credits", num: true, render: r => n0(r.main_credits || 0) }] : [])
+      .concat([{ key: "jobs", label: "Jobs", num: true },
+        { key: "interactive_pct", label: "Interactive share", num: true, render: r => pct(r.interactive_pct, 0) }]), M.members, { id: "month-members", sortKey: "credits" })));
+
+  // largest sessions
+  const onMain = r => !r.acct_kind || r.acct_kind === "main";
+  const ended = r => r.state === "RUNNING" ? "still running" : r.ended_at_cap ? "stopped when the main account hit its limit" : r.ran_to_limit ? `ran until its ${n1(r.limit_h)} h limit`
+    : r.state === "CANCELLED" ? "closed / cancelled" : r.state === "COMPLETED" ? "finished" : r.state.toLowerCase();
+  const act = r => r.cpu_eff == null ? "not known yet" : r.cpu_eff < 0.01 ? "none recorded*" : r.cpu_eff < 0.1 ? "low" : "normal";
+  card.append(el("h3", {}, "Largest sessions in this period"), sortTable([
+    { key: "user", label: "Member", render: r => who(r.user) },
+    hasP ? { key: "acct", label: "Account", render: r => r.acct || "–" } : null,
+    { key: "start", label: "Started", render: r => new Date(r.start * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) },
+    { key: "kind", label: "Type" },
+    { key: "gpus", label: "GPUs", num: true, render: r => r.gpus ? `${r.gpus} × ${(r.gtype || "").toUpperCase()}` : "CPU only" },
+    { key: "hours", label: "Hours", num: true, render: r => n1(r.hours) },
+    { key: "credits", label: "Credits", num: true, render: r => n0(r.credits) },
+    { key: "pa", label: "% of main allowance", num: true, sort: r => onMain(r) ? r.credits : -1, render: r => onMain(r) ? pct(100 * r.credits / Math.max(allow, 1)) : el("span", { class: "muted" }, "project — no limit") },
+    { key: "state", label: "How it ended", render: ended },
+    { key: "cpu_eff", label: "CPU activity", render: act },
+  ].filter(Boolean), M.sessions, { id: "month-sessions", sortKey: "credits", limit: 10 }),
+    el("p", { class: "sub" }, "* Slurm records CPU work done inside the session's own shell only; work done over VS Code or ssh into the node, and GPU use, are not recorded on this cluster."));
+
+  // what the patterns cost
+  const big = M.sessions[0];
+  const idle = M.sessions.filter(r => r.cpu_eff != null && r.cpu_eff < 0.01 && r.hours > 1);
+  const idleSaved = idle.reduce((a, r) => a + r.credits * (1 - 1 / r.hours), 0);
+  const idleGH = idle.reduce((a, r) => a + r.gpus * (r.hours - 1), 0);
+  const share1 = full / Math.max(1, planState().members || L.members);
+  const bigGH = big ? big.gpus * big.hours : 0;
+  card.append(el("div", { class: "callout ok" }, el("ul", { class: "tight" },
+    big && big.gpus ? el("li", {}, onMain(big)
+      ? `The largest session (${big.gpus} × ${(big.gtype || "").toUpperCase()} for ${n1(big.hours)} h, on the main account) costs ${n0(big.credits)} credits at today's prices — ${pct(100 * big.credits / Math.max(full, 1), 0)} of a month's allowance` + (hasP ? "." : `, or ${n1(big.credits / share1)} members' fair shares.`)
+      : `The largest session (${big.gpus} × ${(big.gtype || "").toUpperCase()} for ${n1(big.hours)} h) ran on ${big.acct}, which has no hour limit: ${n0(bigGH)} GPU-hours` +
+        (usd[big.gtype] ? `, $${n0(bigGH * usd[big.gtype])} at ARCH's implied prices if project accounts are billed.` : ".")) : null,
+    idleSaved > 0 ? el("li", {}, `If the sessions with no recorded activity really were idle, closing them after their first hour would have freed about ${n0(idleGH)} GPU-hours (${n0(idleSaved)} credits` +
+      (hasP ? ")." : `, ${pct(100 * idleSaved / Math.max(full, 1), 0)} of a month's allowance).`)) : null,
+    el("li", {}, "Ask only for the GPUs you will use: each GPU in an interactive session is held (and billed) every minute, busy or not."),
+    el("li", {}, "Give interactive sessions short time limits (e.g. -t 2:00:00) and exit when done; run long work as batch jobs."),
+    el("li", {}, hasP ? "Check the main account (pibudget) before starting anything big on it; project accounts have no allowance to run out." : "Check the main account's allowance (pibudget) before starting anything with 4+ GPUs."))));
+  return card;
+}
+
+function vStorage() {
+  const st = S.slow && S.slow.storage, ui = S.ui;
+  if (!st || !st.rows) return el("p", { class: "muted" }, "Storage numbers load a minute after the dashboard starts.");
+  const me = myLab();
+  const TB = 1e12;
+  const rows = st.rows.map(r => {
+    const total = (r.scratch_quota || 0) + (r.proj_size || 0);
+    const used = (r.scratch_used || 0) + (r.proj_used || 0);
+    return { ...r, total, used, upct: total ? 100 * used / total : null, sp: r.scratch_quota ? 100 * r.scratch_used / r.scratch_quota : null,
+      pp: r.proj_size ? 100 * r.proj_used / r.proj_size : null, noq: r.scratch_dir && r.scratch_quota == null,
+      per: r.members ? total / r.members : null };
+  });
+  ui.stScope = ui.stScope || "jhu";
+  const scoped = rows.filter(r => ui.stScope === "all" || (ui.stScope === "jhu" ? r.top === "jhu" || !r.is_pi : r.top !== "jhu" && r.is_pi));
+  const mine = rows.find(r => r.name === me);
+  const withP = scoped.filter(r => r.proj_size);
+  const tot = scoped.reduce((a, r) => a + r.total, 0);
+  const sorted = scoped.slice().sort((a, b) => b.total - a.total);
+  const rank = mine ? sorted.indexOf(mine) + 1 : null;
+  const tile = (label, value, note) => el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value), el("div", { class: "note" }, note));
+
+  const intro = el("div", { class: "card" }, el("h2", {}, "Storage per lab: scratch + project filesystem"),
+    el("p", { class: "explain" }, "Every PI gets a scratch directory (/weka/scratch/…/PI; ARCH's default is 1 TB, often raised to 10 TB on request). A PI who needs more asks for a ",
+      el("b", {}, "project filesystem"), " (/weka/projects/PI), sized per request. Storage belongs to the PI, not to individual project accounts: none of the ",
+      "project/condo accounts has storage of its own, so a lab's total is its scratch plus its project filesystem. Members' home directories (100 GB each) are personal and shown separately."),
+    el("div", { class: "filters" }, el("div", { class: "seg" }, [["jhu", "JHU labs"], ["ssci", "Schmidt labs"], ["all", "All"]].map(([k, l]) =>
+      el("button", { "aria-pressed": String(k === ui.stScope), onclick: () => { ui.stScope = k; render(); } }, l)))),
+    el("div", { class: "tiles" },
+      tile("Storage allocated to these labs", `${n0(tot / TB)} TB`, `${n0(scoped.length)} labs/directories`),
+      tile("Labs with a project filesystem", `${withP.length}`, `of ${scoped.filter(r => r.is_pi).length}; they hold ${pct(100 * withP.reduce((a, r) => a + r.total, 0) / Math.max(tot, 1), 0)} of the total`),
+      tile("Typical lab", `${bytes(sorted.length ? sorted[Math.floor(sorted.length / 2)].total : 0)}`, "median total allocation"),
+      mine ? tile(`${me}`, bytes(mine.total), `${rank ? "rank " + rank + " of " + sorted.length : ""} · ${pct(mine.upct, 0)} used · ${bytes(mine.per)} per person`) : null));
+
+  // stacked bars: top labs by total (+ this lab)
+  let top = sorted.slice(0, 25);
+  if (mine && !top.includes(mine) && scoped.includes(mine)) top.push(mine);
+  const maxT = Math.max(1, ...top.map(r => r.total));
+  const chart = el("div", { class: "card" }, el("h2", {}, "Largest storage allocations"),
+    el("p", { class: "sub" }, `Bar = allocated space; the right column shows how much of it is used. ARCH's quota snapshot of ${st.asof || "?"}; project filesystems measured live.`),
+    legend([["var(--s1)", "Scratch"], [tierVar("mid"), "Project filesystem"]]));
+  for (const r of top) chart.append(el("div", { class: "brow", style: r.name === me ? "font-weight:600" : "" },
+    el("div", { class: "name" }, r.name + (r.name === me ? " (your lab)" : ""), el("small", {}, `${r.dept || "no Slurm account"} · ${r.members || 0} people · ${r.n_proj || 0} project accounts`)),
+    hbar([{ v: r.scratch_quota || 0, color: "var(--s1)", label: "Scratch (TB)" }, { v: r.proj_size || 0, color: tierVar("mid"), label: "Project filesystem (TB)" }].map(x => ({ ...x, v: x.v / TB })), maxT / TB, r.name),
+    el("div", { class: "val" }, `${bytes(r.total)} · ${pct(r.upct, 0)} used`)));
+
+  // table
+  const search = el("input", { type: "search", "data-k": "sSearch", placeholder: "Search lab…", value: ui.sSearch || "", "aria-label": "Search storage", oninput: e => { ui.sSearch = e.target.value; redraw(); } });
+  const flagChk = el("input", { type: "checkbox", checked: !!ui.sFlag, onchange: e => { ui.sFlag = e.target.checked; redraw(); } });
+  const holder = el("div");
+  function redraw() {
+    const q = (ui.sSearch || "").toLowerCase();
+    const rs = scoped.filter(r => (!q || (r.name + " " + r.dept).toLowerCase().includes(q)) && (!ui.sFlag || r.noq || (r.sp || 0) >= 90 || (r.pp || 0) >= 90));
+    holder.replaceChildren(sortTable([
+      { key: "name", label: "Lab", render: r => r.name === me ? el("b", {}, r.name) : r.name }, { key: "dept", label: "Dept" },
+      { key: "scratch_quota", label: "Scratch", num: true, render: r => r.noq ? el("span", { class: "warn" }, "no limit") : bytes(r.scratch_quota) },
+      { key: "sp", label: "Scratch used", num: true, render: r => r.noq ? bytes(r.scratch_used) : meter(r.sp, "–") },
+      { key: "proj_size", label: "Project FS", num: true, render: r => bytes(r.proj_size) },
+      { key: "pp", label: "Project used", num: true, render: r => meter(r.pp, "–") },
+      { key: "total", label: "Total", num: true, render: r => el("b", {}, bytes(r.total)) },
+      { key: "upct", label: "Total used", num: true, render: r => meter(r.upct, "–") },
+      { key: "members", label: "People", num: true },
+      { key: "per", label: "Per person", num: true, render: r => bytes(r.per) },
+      { key: "home_quota", label: "Home dirs (used / quota)", num: true, render: r => r.home_quota ? `${bytes(r.home_used)} / ${bytes(r.home_quota)}` : "–" },
+      { key: "n_proj", label: "Project accts", num: true },
+      { key: "is_pi", label: "Note", render: r => r.is_pi ? "" : "no matching Slurm account" },
+    ], rs, { id: "storage-total", sortKey: "total", limit: 60 }));
+  }
+  redraw();
+  const table = el("div", { class: "card" }, el("h2", {}, "Every lab"),
+    el("p", { class: "sub" }, "Total = scratch limit + project filesystem size (1 TB = 10¹² bytes). People = everyone on the PI's main and project accounts; home directories are personal and not counted in the total. Project accts = the PI's project/condo (compute) accounts, for comparison."),
+    el("div", { class: "filters" }, search, el("label", {}, flagChk, "Only nearly full or without a limit")), holder);
+  return [intro, perUserCard("storage"), chart, table];
+}
+
+function vIssues() {
+  const f = S.findings;
+  if (!f || !f.findings || !f.findings.length) return el("p", { class: "muted" }, "The allocation review is computed a minute or two after the dashboard starts.");
+  const out = [el("div", { class: "card" }, el("h2", {}, "Allocation issues to raise with ARCH"),
+    el("p", { class: "sub" }, `Computed ${f.generated} from Slurm's configuration, accounting records and ARCH's quota files (refreshed every 6 hours). Terms are explained in the glossary at the bottom.`),
+    el("ol", {}, f.findings.map(x => el("li", {}, el("a", { href: "#issues", onclick: ev => { ev.preventDefault(); document.getElementById("f-" + x.id).scrollIntoView({ behavior: "smooth" }); } }, x.title)))))];
+  for (const x of f.findings) {
+    const c = el("div", { class: "card finding " + x.severity, id: "f-" + x.id },
+      el("h2", {}, x.title, " ", el("span", { class: "badge " + x.severity }, { high: "Important", medium: "Worth fixing", info: "For information" }[x.severity])),
+      x.case ? [el("p", {}, PP_LEAD), el("p", {}, richText(x.paras[0])), ...perUserBody(x.case)] : x.paras.map(p => el("p", {}, richText(p))));
+    for (const t of x.tables) {
+      const cols = t.cols.map((label, i) => ({ key: i, label, num: (t.num || []).includes(i),
+        sort: r => { const v = String(r[i]).replace(/[,%×]/g, "").match(/^-?[\d.]+/); return v ? +v[0] : String(r[i]); } }));
+      c.append(detK(x.id + ":" + (t.caption || ""), `Show table${t.caption ? ": " + t.caption : ""} (${t.rows.length} rows)`, sortTable(cols, t.rows, { limit: 40 })));
+    }
+    out.push(c);
+  }
+  out.push(el("div", { class: "card", id: "glossary" }, el("h2", {}, "Glossary"),
+    el("dl", { class: "gloss" }, f.glossary.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, richText(v))]))));
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// boot
+// ---------------------------------------------------------------------------
+const themeBtn = $("#theme");
+function applyTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  else document.documentElement.removeAttribute("data-theme");
+  themeBtn.textContent = "Theme: " + (t || "system");
+}
+applyTheme(store("skj_theme"));
+themeBtn.addEventListener("click", () => {
+  const cur = store("skj_theme") || "system";
+  const nxt = { system: "light", light: "dark", dark: "system" }[cur];
+  store("skj_theme", nxt); applyTheme(nxt === "system" ? null : nxt); render();
+});
+function codeFromHash() {
+  const m = location.hash.match(/^#unlock=([\w-]+)/);
+  if (!m) return null;
+  history.replaceState(null, "", location.pathname + location.search + "#mylab");
+  return m[1];
+}
+window.addEventListener("hashchange", () => {
+  const code = PUBLIC ? codeFromHash() : null;
+  S.tab = code ? "mylab" : location.hash.slice(1) || "overview"; renderTabs(); render();
+  if (code) unlockLab(code, false);
+});
+if (PUBLIC) {
+  const code = codeFromHash();
+  if (code) { S.tab = "mylab"; S.ui.linkOpen = true; }
+  S.labCode = code || store("skj_lab_code") || null;
+}
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => S.tab === "overview" && render(), 200); });
+renderTabs();
+const ALL = ["status", "now", "slow", "findings", "hist", "spark", "alloc", "people", "lab"];
+refresh(ALL);
+// The server refreshes hourly (or when asked); the page only checks whether newer data exists.
+let seen = null;
+setInterval(async () => {
+  try { S.status = await get(PUBLIC ? "/api/meta" : "/api/status"); } catch (e) { lastErr = e.message; }
+  const stamp = PUBLIC ? S.status && S.status.generated : S.status && S.status.last_refresh;
+  if (stamp && seen && stamp !== seen) refresh(ALL); else { $("#updated").textContent = statusLine(); renderBanner(); }
+  seen = stamp || seen;
+}, (PUBLIC ? 5 : 1) * 60e3);
+setTimeout(() => { seen = PUBLIC ? S.status && S.status.generated : S.status && S.status.last_refresh; }, 5000);
+$("#refreshBtn").textContent = PUBLIC ? "Check for update" : "Refresh now";
+$("#refreshBtn").title = PUBLIC ? "Load the latest published numbers (the cluster publishes every hour)" : "Collect fresh numbers from Slurm now (and publish them)";
+$("#refreshBtn").addEventListener("click", async () => {
+  if (PUBLIC) { refresh(ALL); return; }
+  try {
+    const r = await get("/api/refresh");
+    $("#updated").textContent = r.msg;
+    const t0 = S.status && S.status.last_refresh;
+    const poll = setInterval(async () => {
+      S.status = await get("/api/status");
+      if (S.status.last_refresh && S.status.last_refresh !== t0) { clearInterval(poll); seen = S.status.last_refresh; refresh(ALL); }
+      else $("#updated").textContent = "Refreshing — collecting from Slurm (about a minute)…";
+    }, 10e3);
+  } catch (e) { $("#updated").textContent = "⚠ " + e.message; }
+});
+</script>
+</body>
+</html>
